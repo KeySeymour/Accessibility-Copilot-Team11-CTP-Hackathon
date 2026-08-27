@@ -55,17 +55,21 @@ export function FixStudio({
   // issue in the sidebar matches the one drawn on the screenshot.
   const markerNumber = new Map(issues.map((issue, i) => [issue.id, i + 1]));
 
-  async function requestFix(issueId: string) {
+  /**
+   * @param refresh forces a new model call instead of the cached fix stored on
+   *   the issue row. Without it a second click just replays the first answer.
+   */
+  async function requestFix(issueId: string, refresh = false) {
     setGenerating(true);
     setFixError(null);
 
     try {
-      const res = await fetch(`/api/issues/${issueId}/fix`, { method: "POST" });
+      const res = await fetch(`/api/issues/${issueId}/fix${refresh ? "?refresh=1" : ""}`, { method: "POST" });
       const body = await res.json().catch(() => null);
 
       if (!res.ok) {
-        // The route returns plain-language messages (missing key, model error)
-        // that are meant to be shown as-is.
+        // The route returns plain-language messages (quota exhausted, bad key,
+        // wrong model) that are meant to be shown as-is.
         setFixError(body?.error ?? "We couldn't generate a fix for this one.");
         return;
       }
@@ -321,14 +325,37 @@ export function FixStudio({
                 )}
 
                 <Button href={`/scans/${scanId}/compare`} variant="outline" size="sm">
-                  <RefreshCw className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                  <BadgeCheck className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
                   Re-analyze to verify
+                </Button>
+
+                {/* Fixes are cached on the issue row, so re-clicking "Generate"
+                    replays the same answer. This asks for a genuinely new one. */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={generating}
+                  onClick={() => requestFix(selected.id, true)}
+                >
+                  <RefreshCw
+                    className={cn("h-4 w-4", generating && "animate-spin")}
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  />
+                  {generating ? "Regenerating…" : "Regenerate fix"}
                 </Button>
 
                 <Button type="button" variant="ghost" size="sm" onClick={() => setPreviewing(false)}>
                   Back to details
                 </Button>
               </div>
+
+              {fixError && (
+                <p role="alert" className="mt-3 text-xs leading-relaxed text-red-600 dark:text-red-400">
+                  {fixError}
+                </p>
+              )}
             </div>
           ) : (
             <div className="animate-fade-in">

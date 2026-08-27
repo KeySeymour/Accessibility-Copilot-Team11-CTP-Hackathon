@@ -62,6 +62,86 @@ function client(): GoogleGenAI | null {
 }
 
 // ---------------------------------------------------------------------------
+// Error classification
+//
+// The SDK throws with the raw API JSON stringified into the message. Swallowing
+// that and reporting "please try again" is worse than useless when the real
+// cause is a daily quota — retrying is exactly the wrong advice. These map the
+// handful of failures that mean different things to the user.
+// ---------------------------------------------------------------------------
+
+export type GeminiErrorKind = "quota" | "auth" | "model" | "safety" | "unknown";
+
+export class GeminiError extends Error {
+  kind: GeminiErrorKind;
+  /** Seconds to wait, when the API told us. */
+  retryAfterSeconds?: number;
+
+  // Plain field assignment rather than TS parameter properties, so this module
+  // can be loaded by tooling that only strips types (node --experimental-strip-types).
+  constructor(kind: GeminiErrorKind, message: string, retryAfterSeconds?: number) {
+    super(message);
+    this.name = "GeminiError";
+    this.kind = kind;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+export function classifyGeminiError(err: unknown): GeminiError {
+  const raw = err instanceof Error ? err.message : String(err);
+
+  // The SDK stringifies the API's JSON error into the message.
+  let api: { error?: { code?: number; status?: string; message?: string; details?: unknown[] } } | null = null;
+  try {
+    api = JSON.parse(raw.slice(raw.indexOf("{")));
+  } catch {
+    /* not JSON — fall through to the substring checks */
+  }
+
+  const code = api?.error?.code;
+  const status = api?.error?.status ?? "";
+  const detail = api?.error?.message ?? raw;
+
+  if (code === 429 || status === "RESOURCE_EXHAUSTED") {
+    // RetryInfo carries e.g. "31s".
+    const retry = Array.isArray(api?.error?.details)
+      ? api!.error!.details!
+          .map((d) => (d as { retryDelay?: string }).retryDelay)
+          .find((v): v is string => typeof v === "string")
+      : undefined;
+    const seconds = retry ? Math.ceil(Number.parseFloat(retry)) : undefined;
+
+    // A per-day cap can't be waited out in a few seconds; say which one it is.
+    const daily = /PerDay|per day|free_tier/i.test(detail);
+
+    return new GeminiError(
+      "quota",
+      daily
+        ? "You've hit the Gemini free-tier limit for today (20 requests per day). Fix generation will work again tomorrow, or after enabling billing on your Google Cloud project."
+        : `Gemini is rate-limiting requests${seconds ? `. Try again in about ${seconds}s.` : ". Try again shortly."}`,
+      seconds,
+    );
+  }
+
+  if (code === 401 || code === 403 || status === "UNAUTHENTICATED" || status === "PERMISSION_DENIED") {
+    return new GeminiError("auth", "Your Gemini API key was rejected. Check GEMINI_API_KEY in Frontend/.env.local.");
+  }
+
+  if (code === 404 || status === "NOT_FOUND") {
+    return new GeminiError(
+      "model",
+      `The model "${geminiModel()}" isn't available to your key. Run \`npm run gemini:check\` to see which models are, then set GEMINI_MODEL in .env.local.`,
+    );
+  }
+
+  if (/safety|blocked/i.test(detail)) {
+    return new GeminiError("safety", "Gemini declined to answer for this content.");
+  }
+
+  return new GeminiError("unknown", "We couldn't generate a fix for this one. Please try again.");
+}
+
+// ---------------------------------------------------------------------------
 // Page extract — what we actually send
 // ---------------------------------------------------------------------------
 
@@ -209,7 +289,11 @@ export async function findAiIssues(extract: PageExtract, screenshot?: Buffer): P
       .filter((f) => !f.ref || validRefs.has(f.ref))
       .map((f) => ({ ...f, ref: f.ref || null }));
   } catch (err) {
-    console.error("[gemini] issue pass failed:", err instanceof Error ? err.message : err);
+    // The issue pass stays non-throwing: a scan that axe completed must still
+    // succeed. But log the CLASSIFIED reason, so an exhausted quota is
+    // diagnosable instead of looking like "the page had no AI findings".
+    const classified = classifyGeminiError(err);
+    console.error(`[gemini] issue pass failed (${classified.kind}) — scan continues axe-only:`, classified.message);
     return [];
   }
 }
@@ -353,7 +437,11 @@ Rules:
       caveat: parsed.caveat?.trim() || null,
     };
   } catch (err) {
-    console.error("[gemini] fix generation failed:", err instanceof Error ? err.message : err);
-    return null;
+    // Unlike the issue pass, this one THROWS. A fix request is a direct user
+    // action, so the caller needs the real reason to show — silently returning
+    // null is what produced "please try again" on an exhausted daily quota.
+    const classified = classifyGeminiError(err);
+    console.error(`[gemini] fix generation failed (${classified.kind}):`, classified.message);
+    throw classified;
   }
 }
