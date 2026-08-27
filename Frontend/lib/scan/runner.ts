@@ -21,6 +21,8 @@ import { AxeBuilder } from "@axe-core/playwright";
 import { completeScan, getScan, replaceIssues, setScanStatus, SCREENSHOT_DIR } from "@/lib/db";
 import { mapViolations, type MappedIssue } from "@/lib/scan/axe-mapping";
 import { scoreResults } from "@/lib/scan/score";
+import { extractPage } from "@/lib/scan/extract";
+import { findAiIssues, isGeminiEnabled, type AiFinding, type PageExtract } from "@/lib/scan/gemini";
 import type { BoundingBox, Issue } from "@/lib/types";
 
 const NAV_TIMEOUT_MS = 30_000;
@@ -79,18 +81,54 @@ export async function runScan(scanId: string): Promise<void> {
 
     setScanStatus(scanId, "analyzing");
 
-    // The WCAG comparison itself. Scoped to WCAG 2.0/2.1/2.2 A–AA plus axe's
-    // best-practice rules; AAA is deliberately excluded because most products
-    // don't target it and its failures would drown the list.
-    const results = await new AxeBuilder({ page })
+    // "axe + Gemini in parallel" from the merge-logic design. Both read the
+    // same rendered page, so they're started together rather than in sequence.
+    //
+    // The AI pass is intentionally NOT awaited alongside axe with Promise.all:
+    // if Gemini rejects, axe's result must still stand. findAiIssues already
+    // swallows its own errors, but the extract can throw on a hostile page, so
+    // the whole AI branch is wrapped too.
+    // Captured before either pass starts, so the AI pass can see the page as
+    // rendered rather than only its element list.
+    const screenshotPath = await captureScreenshot(page, scanId);
+    const screenshotBuffer = screenshotPath
+      ? await fs.promises.readFile(screenshotPath).catch(() => undefined)
+      : undefined;
+
+    const axePromise = new AxeBuilder({ page })
+      // Scoped to WCAG 2.0/2.1/2.2 A–AA plus axe's best-practice rules; AAA is
+      // deliberately excluded because most products don't target it and its
+      // failures would drown the list.
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
       .analyze();
 
+    const aiPromise: Promise<{ findings: AiFinding[]; extract: PageExtract | null }> = isGeminiEnabled()
+      ? extractPage(page, scan.url)
+          .then(async (extract) => ({ findings: await findAiIssues(extract, screenshotBuffer), extract }))
+          .catch((err) => {
+            console.error(`[scan ${scanId}] AI pass skipped:`, err instanceof Error ? err.message : err);
+            return { findings: [] as AiFinding[], extract: null };
+          })
+      : Promise.resolve({ findings: [] as AiFinding[], extract: null });
+
+    const results = await axePromise;
+    const { findings: aiFindings, extract } = await aiPromise;
+
     const mapped = mapViolations(results.violations);
     const { width: pageWidth, height: pageHeight } = await pageDimensions(page);
-    const issues = await attachBoxes(page, mapped, pageWidth, pageHeight);
+    const axeIssues = await attachBoxes(page, mapped, pageWidth, pageHeight);
 
-    const screenshotPath = await captureScreenshot(page, scanId);
+    const aiIssues = await attachBoxes(
+      page,
+      mapAiFindings(aiFindings, extract, axeIssues),
+      pageWidth,
+      pageHeight,
+    );
+
+    const issues = [...axeIssues, ...aiIssues];
+
+    // Scored from axe only. AI findings are suggestions and must not move a
+    // number the user reads as objective.
     const breakdown = scoreResults(results);
 
     replaceIssues(scanId, issues);
@@ -104,8 +142,9 @@ export async function runScan(scanId: string): Promise<void> {
 
     console.log(
       `[scan ${scanId}] complete — score ${breakdown.score}, ` +
-        `${breakdown.violatedRules} rules violated across ${issues.length} elements, ` +
-        `${breakdown.passedRules} passed, ${breakdown.needsReview} need review`,
+        `${breakdown.violatedRules} rules violated across ${axeIssues.length} elements, ` +
+        `${breakdown.passedRules} passed, ${breakdown.needsReview} need review` +
+        (isGeminiEnabled() ? `, ${aiIssues.length} AI suggestions` : ""),
     );
   } catch (err) {
     // ScanError messages are written for the user; everything else gets a
@@ -119,6 +158,56 @@ export async function runScan(scanId: string): Promise<void> {
 }
 
 export class ScanError extends Error {}
+
+/**
+ * Turns Gemini findings into issues, resolving each `ref` back to the real CSS
+ * selector we handed the model — so a hallucinated selector is impossible.
+ *
+ * Deduped against the axe results, which is the "merge" step in the design.
+ * The model is told not to repeat what axe found, but instructions aren't a
+ * guarantee: if it flags an element axe already flagged, axe wins, because
+ * axe's finding is measured rather than inferred.
+ */
+function mapAiFindings(
+  findings: AiFinding[],
+  extract: PageExtract | null,
+  axeIssues: Omit<Issue, "id" | "fixApplied">[],
+): MappedIssue[] {
+  if (findings.length === 0 || !extract) return [];
+
+  const selectorByRef = new Map(extract.elements.map((el) => [el.ref, el.selector]));
+  const axeTargets = new Set(axeIssues.map((i) => i.target).filter(Boolean));
+  const seen = new Set<string>();
+  const out: MappedIssue[] = [];
+
+  for (const finding of findings) {
+    const selector = finding.ref ? selectorByRef.get(finding.ref) : undefined;
+
+    // axe already reported this element — drop the AI's take on it.
+    if (selector && axeTargets.has(selector)) continue;
+
+    // The model occasionally repeats a category across elements; keep the first.
+    const key = `${finding.category}::${selector ?? "page"}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      ruleId: `ai/${finding.category}`,
+      severity: finding.severity,
+      title: finding.title,
+      // AI findings are not conformance determinations, and the label says so
+      // rather than borrowing WCAG's authority for a model's judgement.
+      wcagRef: "AI suggestion",
+      whyItMatters: finding.whyItMatters,
+      suggestedFix: finding.suggestedFix,
+      target: selector,
+      selector,
+      source: "ai",
+    });
+  }
+
+  return out;
+}
 
 async function pageDimensions(page: Page): Promise<{ width: number; height: number }> {
   return page.evaluate(() => ({

@@ -51,6 +51,9 @@ CREATE TABLE IF NOT EXISTS issues (
   box_y                 REAL,
   box_width             REAL,
   box_height            REAL,
+  -- 'axe'  → a deterministic rule violation, authoritative, counts toward the score
+  -- 'ai'   → a Gemini suggestion, shown as such, deliberately excluded from the score
+  source                TEXT NOT NULL DEFAULT 'axe',
   fix_applied           INTEGER NOT NULL DEFAULT 0,
   created_at            TEXT NOT NULL
 );
