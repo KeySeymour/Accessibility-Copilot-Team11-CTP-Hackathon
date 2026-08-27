@@ -1,0 +1,16 @@
+## Inspiration
+Website accessibility is an often under-utilized aspect for UI developers. Making a website accessible and easy to use for users does not only serve to better user engagement but also provides additional accessibility for users with disabilities.
+This tool is created for UI developers to better cater for all users.
+
+## What it does
+Using standards from the Web Content Accessibility Guidelines (WCAG), an international standard created by the World Wide Web Consortium (W3C) to make digital content usable for people with disabilities, Accessibility Copilot will research, grade and present a metric for how accessible a website is. Providing a cross reference to standards affected, what needs to be done/changed and how it can be implemented across the website.
+
+## How we built it
+
+## Challenges we ran into
+
+## Accomplishments that we're proud of
+
+## What we learned
+
+## What's next for Accessibility Copilot
