@@ -1,0 +1,64 @@
+accessibility-copilot/
+│
+├── frontend/                     # Oraz — Frontend / UX
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Upload.jsx
+│   │   │   ├── FixStudio.jsx
+│   │   │   ├── IssuePanel.jsx
+│   │   │   ├── BoundingBox.jsx
+│   │   │   └── BeforeAfter.jsx
+│   │   ├── pages/
+│   │   │   ├── Home.jsx
+│   │   │   ├── Scan.jsx
+│   │   │   └── Results.jsx
+│   │   ├── services/
+│   │   │   └── api.js
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── public/
+│   ├── package.json
+│   └── vite.config.js
+│
+├── backend/                      # Mashal — Backend / System
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── routes/
+│   │   │   └── analysis.py
+│   │   ├── models/
+│   │   │   └── schemas.py
+│   │   ├── services/
+│   │   │   ├── storage.py
+│   │   │   └── analysis_service.py
+│   │   └── database.py
+│   ├── uploads/
+│   ├── requirements.txt
+│   └── .env.example
+│
+├── ai/                           # Aakash — AI / Accessibility
+│   ├── analyzer.py
+│   ├── prompts.py
+│   ├── schemas.py
+│   └── sample_outputs/
+│       └── analysis.json
+│
+├── validation/                   # Keyshawn — Validation / QA
+│   ├── contrast.py
+│   ├── scoring.py
+│   ├── fix_validator.py
+│   └── tests/
+│       ├── test_contrast.py
+│       ├── test_scoring.py
+│       └── test_api.py
+│
+├── shared/
+│   └── issue_schema.json         # Shared contract for everyone
+│
+├── demo/
+│   ├── bad-ui.png
+│   ├── medium-ui.png
+│   └── good-ui.png
+│
+├── README.md
+├── .gitignore
+└── docker-compose.yml            # If we need it later 
