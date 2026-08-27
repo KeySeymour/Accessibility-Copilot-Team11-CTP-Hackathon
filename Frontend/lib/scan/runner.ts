@@ -22,6 +22,7 @@ import { completeScan, getScan, replaceIssues, setScanStatus, SCREENSHOT_DIR } f
 import { mapViolations, type MappedIssue } from "@/lib/scan/axe-mapping";
 import { scoreResults } from "@/lib/scan/score";
 import { extractPage } from "@/lib/scan/extract";
+import { captureContext, contextKindFor } from "@/lib/scan/context";
 import { findAiIssues, isGeminiEnabled, type AiFinding, type PageExtract } from "@/lib/scan/gemini";
 import type { BoundingBox, Issue } from "@/lib/types";
 
@@ -235,6 +236,7 @@ async function attachBoxes(
 
   for (const { selector, ...issue } of mapped) {
     let box: BoundingBox | undefined;
+    let context: unknown;
 
     if (selector && lookups < MAX_BOX_LOOKUPS) {
       lookups += 1;
@@ -251,9 +253,14 @@ async function attachBoxes(
       } catch {
         // Selector didn't resolve or timed out — leave the marker off.
       }
+
+      // Same pass, same open page: grab the surrounding DOM a fix will need.
+      // This is the only moment it's available — the browser closes below and
+      // the page may have changed by the time anyone asks for a fix.
+      context = (await captureContext(page, selector, contextKindFor(issue.ruleId))) ?? undefined;
     }
 
-    out.push({ ...issue, box });
+    out.push({ ...issue, box, context });
   }
 
   return out;

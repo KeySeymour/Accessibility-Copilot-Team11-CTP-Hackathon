@@ -13,7 +13,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { BoundingBox, Issue, IssueSource, ScanStatus, Severity } from "@/lib/types";
+import type { BoundingBox, GeneratedFix, Issue, IssueSource, ScanStatus, Severity } from "@/lib/types";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const DB_PATH = path.join(DATA_DIR, "copilot.db");
@@ -47,8 +47,16 @@ function migrate(db: Database.Database): void {
   const columns = (table: string) =>
     new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name));
 
-  if (!columns("issues").has("source")) {
+  const issueColumns = columns("issues");
+
+  if (!issueColumns.has("source")) {
     db.exec("ALTER TABLE issues ADD COLUMN source TEXT NOT NULL DEFAULT 'axe'");
+  }
+  if (!issueColumns.has("context")) {
+    db.exec("ALTER TABLE issues ADD COLUMN context TEXT");
+  }
+  if (!issueColumns.has("fix_json")) {
+    db.exec("ALTER TABLE issues ADD COLUMN fix_json TEXT");
   }
 }
 
@@ -197,6 +205,8 @@ interface IssueRow {
   box_width: number | null;
   box_height: number | null;
   source: IssueSource;
+  context: string | null;
+  fix_json: string | null;
   fix_applied: number;
 }
 
@@ -223,6 +233,8 @@ function toIssue(row: IssueRow): Issue {
         : undefined,
     box,
     source: row.source,
+    context: row.context ? safeParse(row.context) : undefined,
+    fix: row.fix_json ? (safeParse(row.fix_json) as GeneratedFix | undefined) : undefined,
     fixApplied: row.fix_applied === 1,
   };
 }
@@ -233,8 +245,8 @@ export function replaceIssues(scanId: string, issues: Omit<Issue, "id" | "fixApp
     `INSERT INTO issues (
        id, scan_id, rule_id, severity, title, wcag_ref, why_it_matters, suggested_fix,
        help_url, target, html, contrast_current, contrast_recommended,
-       box_x, box_y, box_width, box_height, source, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       box_x, box_y, box_width, box_height, source, context, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   const run = db.transaction((rows: Omit<Issue, "id" | "fixApplied">[]) => {
@@ -261,6 +273,7 @@ export function replaceIssues(scanId: string, issues: Omit<Issue, "id" | "fixApp
         issue.box?.width ?? null,
         issue.box?.height ?? null,
         issue.source ?? "axe",
+        issue.context ? JSON.stringify(issue.context) : null,
         now,
       );
     }
@@ -285,6 +298,29 @@ export function listIssues(scanId: string): Issue[] {
 export function getIssue(id: string): (Issue & { scanId: string }) | null {
   const row = db.prepare("SELECT * FROM issues WHERE id = ?").get(id) as IssueRow | undefined;
   return row ? { ...toIssue(row), scanId: row.scan_id } : null;
+}
+
+/** Caches a generated fix so it survives navigating away and back. */
+export function saveIssueFix(issueId: string, fix: unknown): void {
+  db.prepare("UPDATE issues SET fix_json = ? WHERE id = ?").run(JSON.stringify(fix), issueId);
+}
+
+/**
+ * Records that the USER applied a fix in their own codebase. Deliberately
+ * separate from generating one — the app never edits anyone's source, so
+ * only the user can say a thing is actually fixed.
+ */
+export function setFixApplied(issueId: string, applied: boolean): void {
+  db.prepare("UPDATE issues SET fix_applied = ? WHERE id = ?").run(applied ? 1 : 0, issueId);
+}
+
+function safeParse(json: string): unknown | undefined {
+  try {
+    return JSON.parse(json);
+  } catch {
+    // A malformed blob shouldn't take down the issue list.
+    return undefined;
+  }
 }
 
 export function countIssues(scanId: string): number {

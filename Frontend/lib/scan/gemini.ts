@@ -276,9 +276,23 @@ export async function generateFix(issue: {
   html?: string;
   suggestedFix?: string;
   contrast?: { current: number; recommended: number };
+  context?: unknown;
 }): Promise<GeneratedFix | null> {
   const ai = client();
   if (!ai || !isGeminiEnabled()) return null;
+
+  // The context captured at scan time is what makes a real fix possible. For a
+  // document-level rule, axe's `html` is just `<html lang="en">` — the page
+  // outline below is the only thing that says WHERE the change belongs.
+  const ctx = (issue.context ?? {}) as {
+    bodySkeleton?: string;
+    existingLandmarks?: string[];
+    outerHTML?: string;
+    parentChain?: string;
+    computed?: { color: string; backgroundColor: string; fontSize: string; fontWeight: string; className: string };
+    nearbyText?: string;
+    formHTML?: string;
+  };
 
   const prompt = [
     `Rule: ${issue.ruleId}`,
@@ -287,9 +301,22 @@ export async function generateFix(issue: {
     issue.contrast
       ? `Measured contrast: ${issue.contrast.current}:1. Must be at least ${issue.contrast.recommended}:1.`
       : null,
-    "",
-    "Current element:",
-    issue.html ?? "(not captured)",
+
+    ctx.computed
+      ? `\nComputed styles on the failing element:\n  color: ${ctx.computed.color}\n  background: ${ctx.computed.backgroundColor}\n  font-size: ${ctx.computed.fontSize}\n  font-weight: ${ctx.computed.fontWeight}${ctx.computed.className ? `\n  class: "${ctx.computed.className}"` : ""}`
+      : null,
+
+    ctx.existingLandmarks
+      ? `\nLandmarks already on the page: ${ctx.existingLandmarks.length ? ctx.existingLandmarks.join(", ") : "none"}`
+      : null,
+
+    ctx.bodySkeleton ? `\nStructure of <body>:\n${ctx.bodySkeleton}` : null,
+    ctx.parentChain ? `\nAncestors of the element: ${ctx.parentChain}` : null,
+    ctx.formHTML ? `\nThe form it sits in:\n${ctx.formHTML}` : null,
+    ctx.nearbyText ? `\nText around it (use this to ground alt text, do not invent): "${ctx.nearbyText}"` : null,
+
+    "\nThe element the rule fired on:",
+    ctx.outerHTML ?? issue.html ?? "(not captured)",
   ]
     .filter(Boolean)
     .join("\n");
@@ -299,13 +326,14 @@ export async function generateFix(issue: {
       model: geminiModel(),
       contents: prompt,
       config: {
-        systemInstruction: `You fix accessibility problems in HTML. Return the corrected element only.
+        systemInstruction: `You fix accessibility problems in HTML. Return the corrected markup for the smallest region that has to change.
 
 Rules:
-- Change the minimum necessary. Preserve all existing classes, ids, data attributes, and content.
-- For contrast, pick a colour that meets the required ratio AND stays close to the original hue, so the design still looks intended. State the new value.
-- Never invent alt text describing an image you cannot see. Instead, write a placeholder like "TODO: describe what this image shows" and say so in the caveat.
-- If a correct fix needs information you do not have, say exactly what is needed in the caveat rather than guessing.
+- Use the page structure you are given to decide exactly WHERE the change goes. Quote the real elements you were shown — never placeholder markup like <div>...</div>.
+- Change the minimum necessary. Preserve every existing class, id, data attribute, href, and all text content exactly as given.
+- For contrast, pick a colour that meets the required ratio AND stays close to the original hue, so the design still looks intended. State the new value. If the element has a class, write the patch against that class rather than an inline style.
+- Never invent alt text for an image you cannot see. If surrounding text was provided, base the alt text on it. Otherwise write "TODO: describe what this image shows" and say so in the caveat.
+- Leave caveat EMPTY when the fix is complete and needs no human judgement. Only fill it when something genuinely cannot be determined from what you were shown, and then say precisely what is missing.
 - Plain language. No WCAG numbers.`,
         responseMimeType: "application/json",
         responseSchema: FIX_SCHEMA,
