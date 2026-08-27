@@ -46,6 +46,15 @@ export interface Issue {
   contrast?: { current: number; recommended: number };
   box?: BoundingBox;
   source?: IssueSource;
+  /**
+   * Surrounding DOM captured at scan time (see lib/scan/context.ts). Opaque
+   * here because the shape varies by rule; the fix route passes it straight
+   * through to the model.
+   */
+  context?: unknown;
+  /** A previously generated fix, cached so it survives navigation. */
+  fix?: GeneratedFix;
+  /** Set only when the user says they applied it — not when one is generated. */
   fixApplied?: boolean;
 }
 

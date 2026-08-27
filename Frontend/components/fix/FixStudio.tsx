@@ -10,7 +10,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, ArrowUpRight, BadgeCheck, ScanEye, Sparkles, Wand2, Wrench } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, BadgeCheck, RefreshCw, ScanEye, Sparkles, Wand2, Wrench } from "lucide-react";
 import type { GeneratedFix, Issue, Severity } from "@/lib/types";
 import { Badge, SEVERITY_TONE } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -44,6 +44,11 @@ export function FixStudio({
   const [generating, setGenerating] = useState(false);
   const [fix, setFix] = useState<GeneratedFix | null>(null);
   const [fixError, setFixError] = useState<string | null>(null);
+  // Issue ids the user has marked as applied this session, layered over what
+  // came from the server so the UI updates without a round trip.
+  const [applied, setApplied] = useState<Set<string>>(
+    () => new Set(issues.filter((i) => i.fixApplied).map((i) => i.id)),
+  );
 
   const selected = issues.find((issue) => issue.id === selectedId) ?? null;
   // Markers are numbered by position in the full list so the number beside an
@@ -74,9 +79,29 @@ export function FixStudio({
     }
   }
 
+  async function markApplied(issueId: string) {
+    // Optimistic: the write is a single boolean and the UI should feel instant.
+    setApplied((prev) => new Set(prev).add(issueId));
+    try {
+      await fetch(`/api/issues/${issueId}/fix`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applied: true }),
+      });
+    } catch {
+      setApplied((prev) => {
+        const next = new Set(prev);
+        next.delete(issueId);
+        return next;
+      });
+      setFixError("We couldn't save that. Please try again.");
+    }
+  }
+
   function select(id: string) {
     setSelectedId(id);
     setPreviewing(false); // A new issue starts back at details, not preview.
+    // A cached fix comes back from the server, so clear the local copy.
     setFix(null);
     setFixError(null);
   }
@@ -279,11 +304,27 @@ export function FixStudio({
                 )}
               </div>
 
+              {/* This app never edits your source. The honest flow is: copy
+                  the fix, apply it yourself, mark it, then re-analyze to
+                  verify against the real patched page. */}
               <div className="mt-6 flex flex-col gap-2.5">
-                <Button href={`/scans/${scanId}/compare`} size="sm">
-                  <BadgeCheck className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
-                  Apply and re-analyze
+                {applied.has(selected.id) ? (
+                  <div className="flex items-center justify-center gap-2 rounded-full bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
+                    <BadgeCheck className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                    Marked as applied
+                  </div>
+                ) : (
+                  <Button type="button" size="sm" onClick={() => markApplied(selected.id)}>
+                    <BadgeCheck className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                    I&apos;ve applied this
+                  </Button>
+                )}
+
+                <Button href={`/scans/${scanId}/compare`} variant="outline" size="sm">
+                  <RefreshCw className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                  Re-analyze to verify
                 </Button>
+
                 <Button type="button" variant="ghost" size="sm" onClick={() => setPreviewing(false)}>
                   Back to details
                 </Button>

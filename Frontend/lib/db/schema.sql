@@ -54,6 +54,16 @@ CREATE TABLE IF NOT EXISTS issues (
   -- 'axe'  → a deterministic rule violation, authoritative, counts toward the score
   -- 'ai'   → a Gemini suggestion, shown as such, deliberately excluded from the score
   source                TEXT NOT NULL DEFAULT 'axe',
+  -- JSON blob of surrounding DOM captured at scan time (lib/scan/context.ts).
+  -- axe only reports the offending element; a document-level rule like
+  -- landmark-one-main needs the page outline before a fix can be written.
+  -- Captured during the scan because the browser is gone afterwards.
+  context               TEXT,
+  -- The generated fix, cached so it survives navigating between issues.
+  fix_json              TEXT,
+  -- Set only when the USER says they applied it. Generating a fix is not
+  -- fixing anything, and the dashboard's "Issues fixed" tile must not imply
+  -- otherwise.
   fix_applied           INTEGER NOT NULL DEFAULT 0,
   created_at            TEXT NOT NULL
 );
