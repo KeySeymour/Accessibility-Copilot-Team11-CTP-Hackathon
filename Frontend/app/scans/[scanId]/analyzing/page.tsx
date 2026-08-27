@@ -11,7 +11,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Check, Contrast, Gauge, Loader2, ScanEye, ShieldCheck, Type } from "lucide-react";
 import { TopNav } from "@/components/layout/TopNav";
 import { ErrorState } from "@/components/states/ErrorState";
@@ -34,18 +34,23 @@ const STEPS = [
 
 const ORDER: ScanStatus[] = ["queued", "rendering", "analyzing", "complete"];
 
-export default function AnalyzingPage({ params }: { params: { scanId: string } }) {
+export default function AnalyzingPage() {
   const router = useRouter();
+  const { scanId } = useParams<{ scanId: string }>();
   const [status, setStatus] = useState<ScanStatus>("queued");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const interval = setInterval(async () => {
+    let active = true;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
       try {
-        const res = await fetch(`/api/scans/${params.scanId}`, { cache: "no-store" });
+        const res = await fetch(`/api/scans/${scanId}`, { cache: "no-store" });
+
+        if (!active) return;
 
         if (res.status === 404) {
-          clearInterval(interval);
           setError("We couldn't find that scan. It may have been removed.");
           setStatus("failed");
           return;
@@ -55,26 +60,35 @@ export default function AnalyzingPage({ params }: { params: { scanId: string } }
         setStatus(scan.status);
 
         if (scan.status === "complete") {
-          clearInterval(interval);
-          router.push(`/scans/${params.scanId}/fix`);
+          router.push(`/scans/${scanId}/fix`);
+          return;
         } else if (scan.status === "failed") {
-          clearInterval(interval);
           // The runner writes a user-facing reason onto the scan row.
           setError(scan.error ?? null);
+          return;
         }
       } catch {
         // A dropped poll is usually transient — keep polling rather than
         // failing the whole page on one bad request.
       }
-    }, 1500);
 
-    return () => clearInterval(interval);
-  }, [params.scanId, router]);
+      if (active) timeout = setTimeout(poll, 1500);
+    };
+
+    // Fetch immediately, then schedule one request at a time. This avoids both
+    // the initial blank delay and overlapping requests on a busy dev server.
+    void poll();
+
+    return () => {
+      active = false;
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [scanId, router]);
 
   if (status === "failed") {
     return (
       <section aria-labelledby="analyzing-heading">
-        <TopNav currentLabel="Analyze" scanId={params.scanId} />
+        <TopNav currentLabel="Analyze" scanId={scanId} />
         <h1 id="analyzing-heading" className="sr-only">
           Analysis failed
         </h1>
@@ -94,7 +108,7 @@ export default function AnalyzingPage({ params }: { params: { scanId: string } }
 
   return (
     <section aria-labelledby="analyzing-heading" className="animate-fade-up">
-      <TopNav currentLabel="Analyze" scanId={params.scanId} />
+      <TopNav currentLabel="Analyze" scanId={scanId} />
 
       <Eyebrow>Analyzing</Eyebrow>
       <h1

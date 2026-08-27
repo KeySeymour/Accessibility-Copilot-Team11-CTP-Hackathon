@@ -17,6 +17,7 @@ import type { BoundingBox, GeneratedFix, Issue, IssueSource, ScanStatus, Severit
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const DB_PATH = path.join(DATA_DIR, "copilot.db");
+const STALE_SCAN_MS = 10 * 60 * 1000;
 
 export const SCREENSHOT_DIR = path.join(DATA_DIR, "screenshots");
 
@@ -132,8 +133,27 @@ export function createScan({ url, parentScanId }: { url: string; parentScanId?: 
 }
 
 export function getScan(id: string): Scan | null {
+  failInterruptedScan(id);
   const row = db.prepare("SELECT * FROM scans WHERE id = ?").get(id) as ScanRow | undefined;
   return row ? toScan(row) : null;
+}
+
+/**
+ * In-process jobs cannot survive a dev-server restart. Convert an abandoned
+ * job into a useful retry state instead of leaving the progress screen stuck
+ * forever. The generous cutoff is well beyond the normal scan time.
+ */
+function failInterruptedScan(id: string): void {
+  const cutoff = new Date(Date.now() - STALE_SCAN_MS).toISOString();
+  db.prepare(
+    `UPDATE scans
+        SET status = 'failed',
+            error = 'This scan was interrupted or timed out. Start a new scan to try again.',
+            completed_at = ?
+      WHERE id = ?
+        AND status IN ('queued', 'rendering', 'analyzing')
+        AND created_at < ?`,
+  ).run(new Date().toISOString(), id, cutoff);
 }
 
 export function listScans(limit = 10): Scan[] {

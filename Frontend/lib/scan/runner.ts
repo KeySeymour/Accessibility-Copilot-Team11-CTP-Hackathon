@@ -56,7 +56,10 @@ export async function runScan(scanId: string): Promise<void> {
 
   try {
     setScanStatus(scanId, "rendering");
-    browser = await chromium.launch();
+    const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL;
+    browser = await chromium.launch(
+      browserChannel ? { channel: browserChannel } : undefined,
+    );
 
     const context = await browser.newContext({
       viewport: VIEWPORT,
@@ -70,7 +73,9 @@ export async function runScan(scanId: string): Promise<void> {
     const page = await context.newPage();
     page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
 
-    const response = await page.goto(scan.url, { waitUntil: "load" });
+    // DOMContentLoaded is enough for axe and avoids waiting for third-party
+    // ads, analytics, or media that can keep a page's load event open.
+    const response = await page.goto(scan.url, { waitUntil: "domcontentloaded" });
     if (response && !response.ok()) {
       throw new ScanError(`That page returned ${response.status()}, so there was nothing to check.`);
     }

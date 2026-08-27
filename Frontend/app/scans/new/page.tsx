@@ -219,8 +219,7 @@ export default function NewScanPage() {
             }`}
           >
             {previewUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element -- a local
-              // object URL; there is nothing for the image optimizer to do.
+              // eslint-disable-next-line @next/next/no-img-element -- local object URL; optimization is not applicable.
               <img
                 src={previewUrl}
                 alt={`Preview of ${file?.name ?? "the selected screenshot"}`}

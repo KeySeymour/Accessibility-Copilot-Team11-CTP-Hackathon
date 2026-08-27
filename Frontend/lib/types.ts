@@ -74,4 +74,6 @@ export interface GeneratedFix {
   /** What a human must check before applying — e.g. that alt text is accurate. */
   caveat: string | null;
   before?: string | null;
+  /** Whether Gemini authored the proposal or the offline rules fallback did. */
+  source?: "gemini" | "local";
 }

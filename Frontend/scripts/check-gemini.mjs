@@ -19,7 +19,7 @@ if (fs.existsSync(envPath)) {
   console.log("!  No .env.local found. Create it with:\n     cp .env.example .env.local\n");
 }
 
-const key = process.env.GEMINI_API_KEY?.trim();
+const key = process.env.GEMINI_API_KEY?.trim().replace(/^√/, "");
 const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash";
 
 if (!key) {

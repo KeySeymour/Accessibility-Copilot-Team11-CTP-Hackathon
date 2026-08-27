@@ -37,10 +37,11 @@ import type { GeneratedFix, Severity } from "@/lib/types";
 // actually reach, and override with GEMINI_MODEL if this one stops being served
 // too. Avoid `gemini-flash-latest`: it's an alias that moves under you and was
 // returning 503 under load during testing.
-const DEFAULT_MODEL = "gemini-3.6-flash";
+const DEFAULT_MODEL = "gemini-3.7-flash";
 
 /** Cap on elements sent per category — keeps the prompt bounded on large pages. */
 const MAX_PER_CATEGORY = 40;
+const GEMINI_TIMEOUT_MS = 30_000;
 
 export function geminiModel(): string {
   return process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
@@ -52,93 +53,18 @@ export function geminiModel(): string {
  */
 export function isGeminiEnabled(): boolean {
   if (process.env.GEMINI_ENABLED?.trim() === "0") return false;
-  return Boolean(process.env.GEMINI_API_KEY?.trim());
+  return Boolean(cleanApiKey(process.env.GEMINI_API_KEY));
 }
 
 function client(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  const apiKey = cleanApiKey(process.env.GEMINI_API_KEY);
   if (!apiKey) return null;
   return new GoogleGenAI({ apiKey });
 }
 
-// ---------------------------------------------------------------------------
-// Error classification
-//
-// The SDK throws with the raw API JSON stringified into the message. Swallowing
-// that and reporting "please try again" is worse than useless when the real
-// cause is a daily quota — retrying is exactly the wrong advice. These map the
-// handful of failures that mean different things to the user.
-// ---------------------------------------------------------------------------
-
-export type GeminiErrorKind = "quota" | "auth" | "model" | "safety" | "unknown";
-
-export class GeminiError extends Error {
-  kind: GeminiErrorKind;
-  /** Seconds to wait, when the API told us. */
-  retryAfterSeconds?: number;
-
-  // Plain field assignment rather than TS parameter properties, so this module
-  // can be loaded by tooling that only strips types (node --experimental-strip-types).
-  constructor(kind: GeminiErrorKind, message: string, retryAfterSeconds?: number) {
-    super(message);
-    this.name = "GeminiError";
-    this.kind = kind;
-    this.retryAfterSeconds = retryAfterSeconds;
-  }
-}
-
-export function classifyGeminiError(err: unknown): GeminiError {
-  const raw = err instanceof Error ? err.message : String(err);
-
-  // The SDK stringifies the API's JSON error into the message.
-  let api: { error?: { code?: number; status?: string; message?: string; details?: unknown[] } } | null = null;
-  try {
-    api = JSON.parse(raw.slice(raw.indexOf("{")));
-  } catch {
-    /* not JSON — fall through to the substring checks */
-  }
-
-  const code = api?.error?.code;
-  const status = api?.error?.status ?? "";
-  const detail = api?.error?.message ?? raw;
-
-  if (code === 429 || status === "RESOURCE_EXHAUSTED") {
-    // RetryInfo carries e.g. "31s".
-    const retry = Array.isArray(api?.error?.details)
-      ? api!.error!.details!
-          .map((d) => (d as { retryDelay?: string }).retryDelay)
-          .find((v): v is string => typeof v === "string")
-      : undefined;
-    const seconds = retry ? Math.ceil(Number.parseFloat(retry)) : undefined;
-
-    // A per-day cap can't be waited out in a few seconds; say which one it is.
-    const daily = /PerDay|per day|free_tier/i.test(detail);
-
-    return new GeminiError(
-      "quota",
-      daily
-        ? "You've hit the Gemini free-tier limit for today (20 requests per day). Fix generation will work again tomorrow, or after enabling billing on your Google Cloud project."
-        : `Gemini is rate-limiting requests${seconds ? `. Try again in about ${seconds}s.` : ". Try again shortly."}`,
-      seconds,
-    );
-  }
-
-  if (code === 401 || code === 403 || status === "UNAUTHENTICATED" || status === "PERMISSION_DENIED") {
-    return new GeminiError("auth", "Your Gemini API key was rejected. Check GEMINI_API_KEY in Frontend/.env.local.");
-  }
-
-  if (code === 404 || status === "NOT_FOUND") {
-    return new GeminiError(
-      "model",
-      `The model "${geminiModel()}" isn't available to your key. Run \`npm run gemini:check\` to see which models are, then set GEMINI_MODEL in .env.local.`,
-    );
-  }
-
-  if (/safety|blocked/i.test(detail)) {
-    return new GeminiError("safety", "Gemini declined to answer for this content.");
-  }
-
-  return new GeminiError("unknown", "We couldn't generate a fix for this one. Please try again.");
+function cleanApiKey(value: string | undefined): string {
+  // The hidden zsh prompt can leave its leading marker in pasted input.
+  return value?.trim().replace(/^√/, "") ?? "";
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +195,7 @@ export async function findAiIssues(extract: PageExtract, screenshot?: Buffer): P
       model: geminiModel(),
       contents: [{ role: "user", parts }],
       config: {
+        httpOptions: { timeout: GEMINI_TIMEOUT_MS },
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
         responseSchema: FINDINGS_SCHEMA,
@@ -289,11 +216,7 @@ export async function findAiIssues(extract: PageExtract, screenshot?: Buffer): P
       .filter((f) => !f.ref || validRefs.has(f.ref))
       .map((f) => ({ ...f, ref: f.ref || null }));
   } catch (err) {
-    // The issue pass stays non-throwing: a scan that axe completed must still
-    // succeed. But log the CLASSIFIED reason, so an exhausted quota is
-    // diagnosable instead of looking like "the page had no AI findings".
-    const classified = classifyGeminiError(err);
-    console.error(`[gemini] issue pass failed (${classified.kind}) — scan continues axe-only:`, classified.message);
+    console.error("[gemini] issue pass failed:", err instanceof Error ? err.message : err);
     return [];
   }
 }
@@ -360,23 +283,9 @@ export async function generateFix(issue: {
   html?: string;
   suggestedFix?: string;
   contrast?: { current: number; recommended: number };
-  context?: unknown;
 }): Promise<GeneratedFix | null> {
   const ai = client();
   if (!ai || !isGeminiEnabled()) return null;
-
-  // The context captured at scan time is what makes a real fix possible. For a
-  // document-level rule, axe's `html` is just `<html lang="en">` — the page
-  // outline below is the only thing that says WHERE the change belongs.
-  const ctx = (issue.context ?? {}) as {
-    bodySkeleton?: string;
-    existingLandmarks?: string[];
-    outerHTML?: string;
-    parentChain?: string;
-    computed?: { color: string; backgroundColor: string; fontSize: string; fontWeight: string; className: string };
-    nearbyText?: string;
-    formHTML?: string;
-  };
 
   const prompt = [
     `Rule: ${issue.ruleId}`,
@@ -385,22 +294,9 @@ export async function generateFix(issue: {
     issue.contrast
       ? `Measured contrast: ${issue.contrast.current}:1. Must be at least ${issue.contrast.recommended}:1.`
       : null,
-
-    ctx.computed
-      ? `\nComputed styles on the failing element:\n  color: ${ctx.computed.color}\n  background: ${ctx.computed.backgroundColor}\n  font-size: ${ctx.computed.fontSize}\n  font-weight: ${ctx.computed.fontWeight}${ctx.computed.className ? `\n  class: "${ctx.computed.className}"` : ""}`
-      : null,
-
-    ctx.existingLandmarks
-      ? `\nLandmarks already on the page: ${ctx.existingLandmarks.length ? ctx.existingLandmarks.join(", ") : "none"}`
-      : null,
-
-    ctx.bodySkeleton ? `\nStructure of <body>:\n${ctx.bodySkeleton}` : null,
-    ctx.parentChain ? `\nAncestors of the element: ${ctx.parentChain}` : null,
-    ctx.formHTML ? `\nThe form it sits in:\n${ctx.formHTML}` : null,
-    ctx.nearbyText ? `\nText around it (use this to ground alt text, do not invent): "${ctx.nearbyText}"` : null,
-
-    "\nThe element the rule fired on:",
-    ctx.outerHTML ?? issue.html ?? "(not captured)",
+    "",
+    "Current element:",
+    issue.html ?? "(not captured)",
   ]
     .filter(Boolean)
     .join("\n");
@@ -410,14 +306,14 @@ export async function generateFix(issue: {
       model: geminiModel(),
       contents: prompt,
       config: {
-        systemInstruction: `You fix accessibility problems in HTML. Return the corrected markup for the smallest region that has to change.
+        httpOptions: { timeout: GEMINI_TIMEOUT_MS },
+        systemInstruction: `You fix accessibility problems in HTML. Return the corrected element only.
 
 Rules:
-- Use the page structure you are given to decide exactly WHERE the change goes. Quote the real elements you were shown — never placeholder markup like <div>...</div>.
-- Change the minimum necessary. Preserve every existing class, id, data attribute, href, and all text content exactly as given.
-- For contrast, pick a colour that meets the required ratio AND stays close to the original hue, so the design still looks intended. State the new value. If the element has a class, write the patch against that class rather than an inline style.
-- Never invent alt text for an image you cannot see. If surrounding text was provided, base the alt text on it. Otherwise write "TODO: describe what this image shows" and say so in the caveat.
-- Leave caveat EMPTY when the fix is complete and needs no human judgement. Only fill it when something genuinely cannot be determined from what you were shown, and then say precisely what is missing.
+- Change the minimum necessary. Preserve all existing classes, ids, data attributes, and content.
+- For contrast, pick a colour that meets the required ratio AND stays close to the original hue, so the design still looks intended. State the new value.
+- Never invent alt text describing an image you cannot see. Instead, write a placeholder like "TODO: describe what this image shows" and say so in the caveat.
+- If a correct fix needs information you do not have, say exactly what is needed in the caveat rather than guessing.
 - Plain language. No WCAG numbers.`,
         responseMimeType: "application/json",
         responseSchema: FIX_SCHEMA,
@@ -435,13 +331,19 @@ Rules:
       after: parsed.after,
       patch: parsed.patch?.trim() || null,
       caveat: parsed.caveat?.trim() || null,
+      source: "gemini",
     };
   } catch (err) {
-    // Unlike the issue pass, this one THROWS. A fix request is a direct user
-    // action, so the caller needs the real reason to show — silently returning
-    // null is what produced "please try again" on an exhausted daily quota.
-    const classified = classifyGeminiError(err);
-    console.error(`[gemini] fix generation failed (${classified.kind}):`, classified.message);
-    throw classified;
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[gemini] fix generation failed:", message);
+    if (message.includes("429") || message.includes("RESOURCE_EXHAUSTED") || message.toLowerCase().includes("quota")) {
+      throw new Error(
+        "Gemini quota is exhausted for this model. Wait for the quota reset or enable billing, then try again.",
+      );
+    }
+    throw new Error(
+      `Gemini could not generate this fix using ${geminiModel()}. ` +
+        "Check the API key, model access, and issue details, then try again.",
+    );
   }
 }

@@ -10,10 +10,11 @@ import { getScan, listIssues } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: { scanId: string } }) {
-  if (!getScan(params.scanId)) {
+export async function GET(_req: Request, { params }: { params: Promise<{ scanId: string }> }) {
+  const { scanId } = await params;
+  if (!getScan(scanId)) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ issues: listIssues(params.scanId) });
+  return NextResponse.json({ issues: listIssues(scanId) });
 }

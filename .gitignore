@@ -11,3 +11,17 @@ node_modules/
 .env
 .env.local
 .env.*.local
+
+# Python virtual environment
+.venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Local analysis fixtures and duplicate Finder copies
+/test*.png
+/before-analysis*.json
+/after-analysis*.json
+/analysis-result*.json
+* 2.*

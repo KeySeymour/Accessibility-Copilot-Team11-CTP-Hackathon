@@ -121,6 +121,25 @@ export function mapViolations(violations: Result[]): MappedIssue[] {
   const issues: MappedIssue[] = [];
 
   for (const violation of violations) {
+    // axe reports `region` once for every uncontained descendant. Treating
+    // those as separate remediation tasks overwhelms the useful findings and
+    // encourages invalid "one landmark per element" fixes. It is one page
+    // structure problem, represented once.
+    if (violation.id === "region" && violation.nodes.length > 0) {
+      const node = violation.nodes[0];
+      issues.push({
+        ruleId: violation.id,
+        severity: severityOf(node.impact ?? violation.impact),
+        title: "Page content needs clear landmark regions",
+        wcagRef: wcagRefOf(violation.tags),
+        whyItMatters: violation.description,
+        suggestedFix: "Place primary content inside one <main> landmark and navigation groups inside clearly named <nav> landmarks.",
+        helpUrl: violation.helpUrl,
+        source: "axe",
+      });
+      continue;
+    }
+
     for (const node of violation.nodes) {
       const selector = selectorOf(node);
 

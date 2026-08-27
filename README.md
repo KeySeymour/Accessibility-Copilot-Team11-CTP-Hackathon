@@ -165,15 +165,15 @@ Deterministic tools are preferred for measurable checks such as:
 
 ### 5.1 Frontend
 
-- Next.js
+- Next.js and React
 - TypeScript
 - Tailwind CSS
 
 ### 5.2 Backend
 
-- Node.js / TypeScript
-- REST APIs
-- PostgreSQL
+- Python and FastAPI for screenshot analysis
+- Next.js REST API routes for scans and remediation
+- SQLite for scans, issues, scores, and artifact metadata
 
 ### 5.3 Accessibility
 
@@ -183,19 +183,71 @@ Deterministic tools are preferred for measurable checks such as:
 
 ### 5.4 AI
 
-- Multimodal vision model
+- Google Gemini multimodal models
 - Structured JSON analysis output
 - AI-assisted explanations and remediation
 
 ### 5.5 Infrastructure
 
-- Object storage for screenshots and rendered artifacts
-- Background job queue for asynchronous analysis
-- Redis for caching and short-lived state when needed
+- Playwright for rendering and capturing public webpages
+- Local private storage for screenshots and generated previews
+- In-process background scans for a simple local-development workflow
 
 ---
 
-## 6. Product Direction
+## 6. Run Locally
+
+Prerequisites: Node.js 20+, Python 3.11+, and a Gemini API key for AI screenshot analysis. URL scans still run axe-core when Gemini is disabled or unavailable.
+
+```bash
+git clone https://github.com/KeySeymour/Accessibility-Copilot-Team11-CTP-Hackathon.git
+cd Accessibility-Copilot-Team11-CTP-Hackathon
+
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+
+cp backend/.env.example backend/.env
+cp Frontend/.env.example Frontend/.env.local
+
+cd Frontend
+npm install
+npx playwright install chromium
+```
+
+Add the same `GEMINI_API_KEY` to `backend/.env` and `Frontend/.env.local`. Never commit either file.
+
+Start the backend from the repository root:
+
+```bash
+.venv/bin/uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Start the frontend in a second terminal:
+
+```bash
+cd Frontend
+npm run dev
+```
+
+Open `http://localhost:3000`, or on macOS run:
+
+```bash
+open http://localhost:3000
+```
+
+Run the project checks:
+
+```bash
+cd Frontend
+npm run lint
+npm run typecheck
+npm run test:remediation
+npm run build
+```
+
+---
+
+## 7. Product Direction
 
 Accessibility Copilot starts as a focused visual remediation workspace and can expand across the complete product lifecycle.
 
@@ -218,7 +270,7 @@ TEAM
 Collaboration + Accessibility Governance
 ```
 
-### 6.1 Planned Expansion
+### 7.1 Planned Expansion
 
 - Figma integration
 - Design-system-aware fixes
@@ -233,31 +285,31 @@ Collaboration + Accessibility Governance
 
 ---
 
-## 7. Product Principles
+## 8. Product Principles
 
-### 7.1 Visual First
+### 8.1 Visual First
 
 Show users where the problem is instead of starting with a technical audit report.
 
-### 7.2 Plain Language First
+### 8.2 Plain Language First
 
 Make accessibility understandable to designers, developers, and non-experts while keeping technical WCAG details available when needed.
 
-### 7.3 Fix, Not Just Report
+### 8.3 Fix, Not Just Report
 
 The goal is not only to identify problems but to help users move toward a practical solution.
 
-### 7.4 Verify Improvement
+### 8.4 Verify Improvement
 
 A suggested fix should be re-tested before the product claims that accessibility improved.
 
-### 7.5 Continuous Accessibility
+### 8.5 Continuous Accessibility
 
 Accessibility should be considered during design, development, deployment, and ongoing product maintenance—not only during a final audit.
 
 ---
 
-## 8. Important Accessibility Note
+## 9. Important Accessibility Note
 
 Accessibility Copilot is designed to **assist accessibility testing and remediation**. It should not be treated as a complete accessibility certification tool.
 
@@ -267,7 +319,7 @@ The product should therefore describe its score as an **automated accessibility 
 
 ---
 
-## 9. Vision
+## 10. Vision
 
 Accessibility Copilot aims to become the accessibility layer connecting **design and engineering**.
 

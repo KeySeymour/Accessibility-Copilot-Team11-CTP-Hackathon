@@ -25,16 +25,36 @@ import { ErrorState } from "@/components/states/ErrorState";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { getScan, listIssues } from "@/lib/db";
 import { hostOf } from "@/lib/format";
+import { generateLocalFix, sanitizeFixMarkup } from "@/lib/scan/local-fix";
+import type { Issue } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+function groupPageLevelIssues(issues: Issue[]): Issue[] {
+  let includedRegion = false;
+  return issues.flatMap((issue) => {
+    if (issue.ruleId !== "region") return [issue];
+    if (includedRegion) return [];
+    includedRegion = true;
+    return [{
+      ...issue,
+      title: "Page content needs clear landmark regions",
+      suggestedFix: "Place primary content inside one <main> landmark and navigation groups inside clearly named <nav> landmarks.",
+      target: undefined,
+      html: undefined,
+      box: undefined,
+    }];
+  });
+}
 
 // KNOWN LIMIT: notFound() below renders the 404 page correctly but the response
 // still carries a 200, because Next 14 has already begun streaming this dynamic
 // route by the time the status would be set. Users see the right page; crawlers
 // and uptime monitors see the wrong status. Tracked upstream in the App Router.
 
-export default async function FixStudioPage({ params }: { params: { scanId: string } }) {
-  const scan = getScan(params.scanId);
+export default async function FixStudioPage({ params }: { params: Promise<{ scanId: string }> }) {
+  const { scanId } = await params;
+  const scan = getScan(scanId);
   if (!scan) notFound();
 
   // Landing here before the pipeline has finished (a bookmarked URL, a manual
@@ -62,7 +82,16 @@ export default async function FixStudioPage({ params }: { params: { scanId: stri
     );
   }
 
-  const issues = listIssues(scan.id);
+  // Older saved scans contain one `region` row per descendant. Group them at
+  // read time too, so users immediately get the improved result without
+  // having to rerun a scan after this fix.
+  const issues = groupPageLevelIssues(listIssues(scan.id));
+  const initialFixes = Object.fromEntries(
+    issues.map((issue) => {
+      const fix = issue.fix ?? generateLocalFix(issue);
+      return [issue.id, { ...fix, before: issue.html ?? null, after: sanitizeFixMarkup(fix.after) }];
+    }),
+  );
 
   return (
     <section aria-labelledby="fix-studio-heading" className="animate-fade-up">
@@ -95,6 +124,8 @@ export default async function FixStudioPage({ params }: { params: { scanId: stri
         score={scan.score ?? 0}
         screenshotUrl={scan.hasScreenshot ? `/api/scans/${scan.id}/screenshot` : null}
         needsReview={scan.needsReview}
+        initialFixes={initialFixes}
+        improvedScreenshotUrl={`/api/scans/${scan.id}/improved-screenshot`}
       />
     </section>
   );

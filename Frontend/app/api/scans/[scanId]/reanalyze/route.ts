@@ -13,8 +13,9 @@ import { startScan } from "@/lib/scan/runner";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(_req: Request, { params }: { params: { scanId: string } }) {
-  const parent = getScan(params.scanId);
+export async function POST(_req: Request, { params }: { params: Promise<{ scanId: string }> }) {
+  const { scanId } = await params;
+  const parent = getScan(scanId);
 
   if (!parent) {
     return NextResponse.json({ error: "not found" }, { status: 404 });

@@ -64,13 +64,14 @@ function buildComparison(scanId: string) {
   };
 }
 
-export default async function ComparePage({ params }: { params: { scanId: string } }) {
-  const comparison = buildComparison(params.scanId);
+export default async function ComparePage({ params }: { params: Promise<{ scanId: string }> }) {
+  const { scanId } = await params;
+  const comparison = buildComparison(scanId);
   if (!comparison) notFound();
 
   return (
     <section aria-labelledby="compare-heading" className="animate-fade-up">
-      <TopNav currentLabel="Compare" scanId={params.scanId} />
+      <TopNav currentLabel="Compare" scanId={scanId} />
 
       <Eyebrow>Verify</Eyebrow>
       <h1
@@ -109,7 +110,7 @@ export default async function ComparePage({ params }: { params: { scanId: string
               View progress
             </Button>
           ) : (
-            <ReanalyzeButton scanId={params.scanId} className="mt-6" />
+            <ReanalyzeButton scanId={scanId} className="mt-6" />
           )}
         </div>
       ) : (

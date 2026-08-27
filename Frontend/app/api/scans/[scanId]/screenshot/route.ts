@@ -14,8 +14,9 @@ import { getScreenshotPath } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: { scanId: string } }) {
-  const file = getScreenshotPath(params.scanId);
+export async function GET(_req: Request, { params }: { params: Promise<{ scanId: string }> }) {
+  const { scanId } = await params;
+  const file = getScreenshotPath(scanId);
 
   if (!file || !fs.existsSync(file)) {
     return NextResponse.json({ error: "not found" }, { status: 404 });

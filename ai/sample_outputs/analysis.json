@@ -1,0 +1,33 @@
+{
+  "score": 58,
+  "summary": "The interface is usable at a glance, but several text and control treatments may make key actions difficult to perceive or operate.",
+  "model": "sample-fixture",
+  "issues": [
+    {
+      "id": "contrast-1",
+      "type": "contrast",
+      "severity": "serious",
+      "confidence": 0.96,
+      "title": "Muted text may have insufficient contrast",
+      "description": "The gray helper text is difficult to distinguish from the light background.",
+      "impact": "People with low vision or color-vision differences may miss supporting instructions.",
+      "recommendation": "Use a darker text color and verify at least a 4.5:1 ratio for normal text with a contrast checker.",
+      "wcag": ["1.4.3"],
+      "bounding_box": {"x": 0.12, "y": 0.42, "width": 0.34, "height": 0.06},
+      "evidence": {"observed": "Light gray text on a near-white surface", "ratio": "not measured from screenshot"}
+    },
+    {
+      "id": "target-1",
+      "type": "target-size",
+      "severity": "moderate",
+      "confidence": 0.82,
+      "title": "Icon control appears small",
+      "description": "The standalone icon button has a visibly small hit area compared with nearby controls.",
+      "impact": "People with motor impairments or users on touch devices may have difficulty activating it accurately.",
+      "recommendation": "Provide a hit area of at least 24 by 24 CSS pixels and include a visible accessible name.",
+      "wcag": ["2.5.8"],
+      "bounding_box": {"x": 0.82, "y": 0.08, "width": 0.05, "height": 0.05},
+      "evidence": {"observed": "Small icon with limited surrounding spacing"}
+    }
+  ]
+}
