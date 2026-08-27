@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+
+# Local runtime data (SQLite database + captured screenshots)
+.data/
+
+# Environment / secrets — never commit these
+.env
+.env.local
+.env.*.local
