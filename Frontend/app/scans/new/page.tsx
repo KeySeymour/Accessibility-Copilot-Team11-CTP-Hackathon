@@ -12,20 +12,87 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileImage, ImageUp, Link2, Loader2, ScanSearch } from "lucide-react";
+import { FileImage, ImageUp, Link2, Loader2, ScanSearch, X } from "lucide-react";
 import { TopNav } from "@/components/layout/TopNav";
 import { ErrorState } from "@/components/states/ErrorState";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { Button } from "@/components/ui/Button";
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // matches the "up to 10MB" copy
+const ACCEPTED = ["image/png", "image/jpeg"];
 
 export default function NewScanPage() {
   const router = useRouter();
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
+
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  // Object URLs hold the blob in memory until revoked, so tie each one's
+  // lifetime to the file it previews.
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+
+  function acceptFile(candidate: File | undefined) {
+    setFileError(null);
+
+    if (!candidate) return;
+
+    if (!ACCEPTED.includes(candidate.type)) {
+      setFileError("That file isn't a PNG or JPG. Pick an image and try again.");
+      setFile(null);
+      return;
+    }
+
+    if (candidate.size > MAX_UPLOAD_BYTES) {
+      const mb = (candidate.size / 1024 / 1024).toFixed(1);
+      setFileError(`That image is ${mb}MB. The limit is 10MB.`);
+      setFile(null);
+      return;
+    }
+
+    setFile(candidate);
+  }
+
+  async function handleAnalyzeScreenshot() {
+    if (!file) return;
+
+    setUploading(true);
+    setFileError(null);
+
+    try {
+      const body = new FormData();
+      body.append("screenshot", file);
+
+      const res = await fetch("/api/scans", { method: "POST", body });
+      const payload = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setFileError(payload?.error ?? "We couldn't start that scan.");
+        return;
+      }
+
+      router.push(`/scans/${payload.scanId}/analyzing`);
+    } catch {
+      setFileError("We couldn't reach the server. Please try again.");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function handleAnalyzeUrl(e: React.FormEvent) {
     e.preventDefault();
@@ -135,21 +202,90 @@ export default function NewScanPage() {
           {/* Drag-and-drop zone: "Choose File", PNG/JPG up to 10MB */}
           <label
             htmlFor="screenshot"
-            className="mt-6 flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/60 px-6 py-8 text-center transition-colors hover:border-violet-300 hover:bg-violet-50/40 dark:border-white/10 dark:bg-white/5 dark:hover:border-violet-500/40"
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              acceptFile(e.dataTransfer.files?.[0]);
+            }}
+            className={`mt-6 flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed px-6 py-8 text-center transition-colors ${
+              dragging
+                ? "border-violet-500 bg-violet-50/60 dark:border-violet-400 dark:bg-violet-500/10"
+                : "border-slate-200 bg-slate-50/60 hover:border-violet-300 hover:bg-violet-50/40 dark:border-white/10 dark:bg-white/5 dark:hover:border-violet-500/40"
+            }`}
           >
-            <FileImage className="h-6 w-6 text-slate-400" strokeWidth={2} aria-hidden="true" />
+            {previewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- a local
+              // object URL; there is nothing for the image optimizer to do.
+              <img
+                src={previewUrl}
+                alt={`Preview of ${file?.name ?? "the selected screenshot"}`}
+                className="max-h-40 w-auto rounded-lg border border-slate-200 object-contain dark:border-white/10"
+              />
+            ) : (
+              <FileImage className="h-6 w-6 text-slate-400" strokeWidth={2} aria-hidden="true" />
+            )}
+
             <span className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-300">
-              {fileName ?? "Choose a file or drag it here"}
+              {file ? file.name : dragging ? "Drop it here" : "Choose a file or drag it here"}
             </span>
-            <span className="mt-1 font-mono text-xs text-slate-400">PNG · JPG · max 10MB</span>
+            <span className="mt-1 font-mono text-xs text-slate-400">
+              {file ? `${(file.size / 1024 / 1024).toFixed(1)}MB` : "PNG · JPG · max 10MB"}
+            </span>
+
             <input
               id="screenshot"
               type="file"
               accept="image/png,image/jpeg"
               className="sr-only"
-              onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)}
+              onChange={(e) => acceptFile(e.target.files?.[0])}
             />
           </label>
+
+          {fileError && (
+            <p role="alert" className="mt-3 text-sm leading-relaxed text-red-600 dark:text-red-400">
+              {fileError}
+            </p>
+          )}
+
+          <Button
+            type="button"
+            onClick={handleAnalyzeScreenshot}
+            // Nothing to send until a valid image is chosen, so the button
+            // stays disabled rather than failing on click.
+            disabled={!file || uploading}
+            className="mt-4 w-full"
+          >
+            {uploading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} aria-hidden="true" />
+                Uploading…
+              </>
+            ) : (
+              <>
+                <ScanSearch className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                Analyze Screenshot
+              </>
+            )}
+          </Button>
+
+          {file && !uploading && (
+            <button
+              type="button"
+              onClick={() => {
+                setFile(null);
+                setFileError(null);
+              }}
+              className="mt-2 inline-flex w-full min-h-[44px] items-center justify-center gap-1.5 rounded-full text-sm text-slate-500 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+            >
+              <X className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+              Remove
+            </button>
+          )}
         </div>
       </div>
 

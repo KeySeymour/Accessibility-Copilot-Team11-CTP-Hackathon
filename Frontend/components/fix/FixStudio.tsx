@@ -10,8 +10,8 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, ArrowUpRight, BadgeCheck, ScanEye, Sparkles, Wand2, Wrench } from "lucide-react";
-import type { Issue, Severity } from "@/lib/types";
+import { AlertTriangle, ArrowUpRight, BadgeCheck, RefreshCw, ScanEye, Sparkles, Wand2, Wrench } from "lucide-react";
+import type { GeneratedFix, Issue, Severity } from "@/lib/types";
 import { Badge, SEVERITY_TONE } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ScoreRing } from "@/components/ui/ScoreRing";
@@ -42,25 +42,68 @@ export function FixStudio({
   const [selectedId, setSelectedId] = useState<string | null>(issues[0]?.id ?? null);
   const [previewing, setPreviewing] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [fix, setFix] = useState<GeneratedFix | null>(null);
+  const [fixError, setFixError] = useState<string | null>(null);
+  // Issue ids the user has marked as applied this session, layered over what
+  // came from the server so the UI updates without a round trip.
+  const [applied, setApplied] = useState<Set<string>>(
+    () => new Set(issues.filter((i) => i.fixApplied).map((i) => i.id)),
+  );
 
   const selected = issues.find((issue) => issue.id === selectedId) ?? null;
   // Markers are numbered by position in the full list so the number beside an
   // issue in the sidebar matches the one drawn on the screenshot.
   const markerNumber = new Map(issues.map((issue, i) => [issue.id, i + 1]));
 
-  async function generateFix(issueId: string) {
+  async function requestFix(issueId: string) {
     setGenerating(true);
+    setFixError(null);
+
     try {
-      await fetch(`/api/issues/${issueId}/fix`, { method: "POST" });
+      const res = await fetch(`/api/issues/${issueId}/fix`, { method: "POST" });
+      const body = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        // The route returns plain-language messages (missing key, model error)
+        // that are meant to be shown as-is.
+        setFixError(body?.error ?? "We couldn't generate a fix for this one.");
+        return;
+      }
+
+      setFix(body as GeneratedFix);
       setPreviewing(true);
+    } catch {
+      setFixError("We couldn't reach the server. Please try again.");
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function markApplied(issueId: string) {
+    // Optimistic: the write is a single boolean and the UI should feel instant.
+    setApplied((prev) => new Set(prev).add(issueId));
+    try {
+      await fetch(`/api/issues/${issueId}/fix`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applied: true }),
+      });
+    } catch {
+      setApplied((prev) => {
+        const next = new Set(prev);
+        next.delete(issueId);
+        return next;
+      });
+      setFixError("We couldn't save that. Please try again.");
     }
   }
 
   function select(id: string) {
     setSelectedId(id);
     setPreviewing(false); // A new issue starts back at details, not preview.
+    // A cached fix comes back from the server, so clear the local copy.
+    setFix(null);
+    setFixError(null);
   }
 
   if (issues.length === 0) {
@@ -209,7 +252,7 @@ export function FixStudio({
         <div className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-white/10 dark:bg-white/5">
           {!selected ? (
             <p className="text-sm text-slate-500 dark:text-slate-400">Select an issue to see the details.</p>
-          ) : previewing ? (
+          ) : previewing && fix ? (
             <div className="animate-scale-in">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-400" strokeWidth={2} aria-hidden="true" />
@@ -218,26 +261,70 @@ export function FixStudio({
                 </h2>
               </div>
 
-              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <p className="mt-2.5 text-sm leading-relaxed text-slate-600 dark:text-slate-400">{fix.explanation}</p>
+
+              <div className="mt-5 flex flex-col gap-4">
                 <div className="rounded-xl border border-slate-200 p-4 dark:border-white/10">
                   <Badge tone="fail">Before</Badge>
-                  <p className="mt-2.5 font-mono text-xs leading-relaxed text-slate-500">
-                    {selected.contrast ? `${selected.contrast.current}:1 contrast` : selected.ruleId}
-                  </p>
+                  <pre className="mt-2.5 overflow-x-auto font-mono text-xs leading-relaxed text-slate-500">
+                    <code>
+                      {fix.before ??
+                        (selected.contrast ? `${selected.contrast.current}:1 contrast` : selected.ruleId)}
+                    </code>
+                  </pre>
                 </div>
+
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/5">
                   <Badge tone="pass">After</Badge>
-                  <p className="mt-2.5 font-mono text-xs leading-relaxed text-emerald-700 dark:text-emerald-400">
-                    {selected.contrast ? `${selected.contrast.recommended}:1 contrast` : "Passes"}
-                  </p>
+                  <pre className="mt-2.5 overflow-x-auto font-mono text-xs leading-relaxed text-emerald-700 dark:text-emerald-400">
+                    <code>{fix.after}</code>
+                  </pre>
                 </div>
+
+                {fix.patch && (
+                  <div className="rounded-xl bg-slate-50 p-4 dark:bg-white/5">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Change</h3>
+                    <pre className="mt-1.5 overflow-x-auto font-mono text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                      <code>{fix.patch}</code>
+                    </pre>
+                  </div>
+                )}
+
+                {/* Generated fixes need a human check before they're trusted —
+                    the model says here what it couldn't verify itself. */}
+                {fix.caveat && (
+                  <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-500/25 dark:bg-amber-500/5">
+                    <AlertTriangle
+                      className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400"
+                      strokeWidth={2}
+                      aria-hidden="true"
+                    />
+                    <p className="text-xs leading-relaxed text-amber-800 dark:text-amber-300">{fix.caveat}</p>
+                  </div>
+                )}
               </div>
 
+              {/* This app never edits your source. The honest flow is: copy
+                  the fix, apply it yourself, mark it, then re-analyze to
+                  verify against the real patched page. */}
               <div className="mt-6 flex flex-col gap-2.5">
-                <Button href={`/scans/${scanId}/compare`} size="sm">
-                  <BadgeCheck className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
-                  Apply This Fix
+                {applied.has(selected.id) ? (
+                  <div className="flex items-center justify-center gap-2 rounded-full bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
+                    <BadgeCheck className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                    Marked as applied
+                  </div>
+                ) : (
+                  <Button type="button" size="sm" onClick={() => markApplied(selected.id)}>
+                    <BadgeCheck className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                    I&apos;ve applied this
+                  </Button>
+                )}
+
+                <Button href={`/scans/${scanId}/compare`} variant="outline" size="sm">
+                  <RefreshCw className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                  Re-analyze to verify
                 </Button>
+
                 <Button type="button" variant="ghost" size="sm" onClick={() => setPreviewing(false)}>
                   Back to details
                 </Button>
@@ -251,6 +338,15 @@ export function FixStudio({
                   {SEVERITY_LABEL[selected.severity]}
                 </Badge>
                 <Badge tone="neutral">{selected.wcagRef}</Badge>
+                {/* An AI finding is a suggestion, not a measured rule violation.
+                    Saying so is the honest thing and keeps the two kinds of
+                    result from looking equally authoritative. */}
+                {selected.source === "ai" && (
+                  <Badge tone="info">
+                    <Sparkles className="h-3 w-3" strokeWidth={2.5} aria-hidden="true" />
+                    AI suggestion
+                  </Badge>
+                )}
               </div>
 
               <h2 className="mt-3 font-heading text-lg font-semibold tracking-tight text-slate-900 dark:text-white">
@@ -322,11 +418,17 @@ export function FixStudio({
                 size="sm"
                 className="mt-6 w-full"
                 disabled={generating}
-                onClick={() => generateFix(selected.id)}
+                onClick={() => requestFix(selected.id)}
               >
                 <Wand2 className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
                 {generating ? "Generating…" : "Generate fix"}
               </Button>
+
+              {fixError && (
+                <p role="alert" className="mt-3 text-xs leading-relaxed text-red-600 dark:text-red-400">
+                  {fixError}
+                </p>
+              )}
             </div>
           )}
         </div>

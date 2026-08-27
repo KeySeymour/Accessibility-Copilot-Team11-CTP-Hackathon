@@ -13,7 +13,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { BoundingBox, Issue, ScanStatus, Severity } from "@/lib/types";
+import type { BoundingBox, GeneratedFix, Issue, IssueSource, ScanStatus, Severity } from "@/lib/types";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const DB_PATH = path.join(DATA_DIR, "copilot.db");
@@ -27,9 +27,37 @@ function connect(): Database.Database {
   // WAL keeps the polling reads from blocking the worker's writes.
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  // Wait for a lock rather than failing instantly. More than one process opens
+  // this file in normal use — `next build` collects route data while `next dev`
+  // is running, and both load this module. Without a busy timeout the second
+  // one throws SQLITE_BUSY on the migration's ALTER TABLE and the build fails.
+  db.pragma("busy_timeout = 5000");
   db.exec(fs.readFileSync(path.join(process.cwd(), "lib/db/schema.sql"), "utf8"));
+  migrate(db);
 
   return db;
+}
+
+/**
+ * Additive migrations for databases created before a column existed.
+ * `CREATE TABLE IF NOT EXISTS` above is a no-op on an existing table, so new
+ * columns have to be added here or an older .data/copilot.db breaks on read.
+ */
+function migrate(db: Database.Database): void {
+  const columns = (table: string) =>
+    new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name));
+
+  const issueColumns = columns("issues");
+
+  if (!issueColumns.has("source")) {
+    db.exec("ALTER TABLE issues ADD COLUMN source TEXT NOT NULL DEFAULT 'axe'");
+  }
+  if (!issueColumns.has("context")) {
+    db.exec("ALTER TABLE issues ADD COLUMN context TEXT");
+  }
+  if (!issueColumns.has("fix_json")) {
+    db.exec("ALTER TABLE issues ADD COLUMN fix_json TEXT");
+  }
 }
 
 const globalForDb = globalThis as unknown as { __copilotDb?: Database.Database };
@@ -176,6 +204,9 @@ interface IssueRow {
   box_y: number | null;
   box_width: number | null;
   box_height: number | null;
+  source: IssueSource;
+  context: string | null;
+  fix_json: string | null;
   fix_applied: number;
 }
 
@@ -201,6 +232,9 @@ function toIssue(row: IssueRow): Issue {
         ? { current: row.contrast_current, recommended: row.contrast_recommended }
         : undefined,
     box,
+    source: row.source,
+    context: row.context ? safeParse(row.context) : undefined,
+    fix: row.fix_json ? (safeParse(row.fix_json) as GeneratedFix | undefined) : undefined,
     fixApplied: row.fix_applied === 1,
   };
 }
@@ -211,8 +245,8 @@ export function replaceIssues(scanId: string, issues: Omit<Issue, "id" | "fixApp
     `INSERT INTO issues (
        id, scan_id, rule_id, severity, title, wcag_ref, why_it_matters, suggested_fix,
        help_url, target, html, contrast_current, contrast_recommended,
-       box_x, box_y, box_width, box_height, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       box_x, box_y, box_width, box_height, source, context, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   const run = db.transaction((rows: Omit<Issue, "id" | "fixApplied">[]) => {
@@ -238,6 +272,8 @@ export function replaceIssues(scanId: string, issues: Omit<Issue, "id" | "fixApp
         issue.box?.y ?? null,
         issue.box?.width ?? null,
         issue.box?.height ?? null,
+        issue.source ?? "axe",
+        issue.context ? JSON.stringify(issue.context) : null,
         now,
       );
     }
@@ -246,11 +282,15 @@ export function replaceIssues(scanId: string, issues: Omit<Issue, "id" | "fixApp
   run(issues);
 }
 
-const SEVERITY_RANK = "CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END";
+// Deterministic axe violations sort above AI suggestions at equal severity —
+// the confirmed problems should be what the user works through first.
+const ISSUE_ORDER =
+  "CASE severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, " +
+  "CASE source WHEN 'axe' THEN 0 ELSE 1 END, rule_id";
 
 export function listIssues(scanId: string): Issue[] {
   const rows = db
-    .prepare(`SELECT * FROM issues WHERE scan_id = ? ORDER BY ${SEVERITY_RANK}, rule_id`)
+    .prepare(`SELECT * FROM issues WHERE scan_id = ? ORDER BY ${ISSUE_ORDER}`)
     .all(scanId) as IssueRow[];
   return rows.map(toIssue);
 }
@@ -258,6 +298,29 @@ export function listIssues(scanId: string): Issue[] {
 export function getIssue(id: string): (Issue & { scanId: string }) | null {
   const row = db.prepare("SELECT * FROM issues WHERE id = ?").get(id) as IssueRow | undefined;
   return row ? { ...toIssue(row), scanId: row.scan_id } : null;
+}
+
+/** Caches a generated fix so it survives navigating away and back. */
+export function saveIssueFix(issueId: string, fix: unknown): void {
+  db.prepare("UPDATE issues SET fix_json = ? WHERE id = ?").run(JSON.stringify(fix), issueId);
+}
+
+/**
+ * Records that the USER applied a fix in their own codebase. Deliberately
+ * separate from generating one — the app never edits anyone's source, so
+ * only the user can say a thing is actually fixed.
+ */
+export function setFixApplied(issueId: string, applied: boolean): void {
+  db.prepare("UPDATE issues SET fix_applied = ? WHERE id = ?").run(applied ? 1 : 0, issueId);
+}
+
+function safeParse(json: string): unknown | undefined {
+  try {
+    return JSON.parse(json);
+  } catch {
+    // A malformed blob shouldn't take down the issue list.
+    return undefined;
+  }
 }
 
 export function countIssues(scanId: string): number {
