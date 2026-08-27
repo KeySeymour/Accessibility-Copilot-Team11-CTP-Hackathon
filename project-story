@@ -2,15 +2,24 @@
 Website accessibility is an often under-utilized aspect for UI developers. Making a website accessible and easy to use for users does not only serve to better user engagement but also provides additional accessibility for users with disabilities.
 This tool is created for UI developers to better cater for all users.
 
-## What it does
+## What it does##
 Using standards from the Web Content Accessibility Guidelines (WCAG), an international standard created by the World Wide Web Consortium (W3C) to make digital content usable for people with disabilities, Accessibility Copilot will research, grade and present a metric for how accessible a website is. Providing a cross reference to standards affected, what needs to be done/changed and how it can be implemented across the website.
 
 ## How we built it
+We used node.js as a backend along with a React/Typescript frontend, Axe-core libraries to inject a list of WCAG standards so when it parsing through a URL, it compares the makeup of the DOM and the standards.Using Google Gemini's API we provide users with recommendations for accessibility changes to improve their ratings.
 
 ## Challenges we ran into
+- Implementing screenshot features instead of solely relying on live URLs.
+- "Generate fix" button was not working initially and didn't serve a function.
+- We reached Gemeni API's requests limit due to product testing for multimodal structure. Core features still operational.
 
 ## Accomplishments that we're proud of
+- correctly using the gemeni API keys to implement accessibility solutions 
+- Properly identifiying issues regarding multiple URLs
+- Accurately developing
 
 ## What we learned
+We learned how challenging it is to connect multiple parts of a real application into one working pipeline. We worked through frontend state and file uploads, backend API communication, structured data between services, Gemini API integration, accessibility analysis, and handling asynchronous results. We also learned how to divide a larger system across a team, manage branches and pull requests, resolve integration problems, and make independently developed components work together.
 
 ## What's next for Accessibility Copilot
+Next, we want to improve detection accuracy by combining Gemini’s visual reasoning with stronger WCAG rules, DOM analysis, and axe-core validation. We also want to make fixes more reliable by automatically re-testing every suggested change instead of only recommending it. After that, we can expand the product with Figma integration, developer handoff, CI/CD accessibility checks, and regression monitoring so accessibility is continuously checked from design to deployment.
