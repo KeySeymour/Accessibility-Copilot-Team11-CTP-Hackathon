@@ -20,7 +20,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const key = process.env.GEMINI_API_KEY?.trim();
-const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash";
 
 if (!key) {
   console.error("✗ GEMINI_API_KEY is not set in Frontend/.env.local");

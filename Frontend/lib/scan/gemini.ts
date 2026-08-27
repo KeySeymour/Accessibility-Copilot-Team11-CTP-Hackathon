@@ -32,7 +32,12 @@ import "server-only";
 import { GoogleGenAI, Type } from "@google/genai";
 import type { GeneratedFix, Severity } from "@/lib/types";
 
-const DEFAULT_MODEL = "gemini-2.5-flash";
+// gemini-2.5-flash is no longer served to new API keys — it 404s with a
+// pointer to the 3.x line. Run `npm run gemini:check` to see what your key can
+// actually reach, and override with GEMINI_MODEL if this one stops being served
+// too. Avoid `gemini-flash-latest`: it's an alias that moves under you and was
+// returning 503 under load during testing.
+const DEFAULT_MODEL = "gemini-3.6-flash";
 
 /** Cap on elements sent per category — keeps the prompt bounded on large pages. */
 const MAX_PER_CATEGORY = 40;
