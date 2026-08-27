@@ -12,5 +12,7 @@ Using standards from the Web Content Accessibility Guidelines (WCAG), an interna
 ## Accomplishments that we're proud of
 
 ## What we learned
+We learned how challenging it is to connect multiple parts of a real application into one working pipeline. We worked through frontend state and file uploads, backend API communication, structured data between services, Gemini API integration, accessibility analysis, and handling asynchronous results. We also learned how to divide a larger system across a team, manage branches and pull requests, resolve integration problems, and make independently developed components work together.
 
 ## What's next for Accessibility Copilot
+Next, we want to improve detection accuracy by combining Gemini’s visual reasoning with stronger WCAG rules, DOM analysis, and axe-core validation. We also want to make fixes more reliable by automatically re-testing every suggested change instead of only recommending it. After that, we can expand the product with Figma integration, developer handoff, CI/CD accessibility checks, and regression monitoring so accessibility is continuously checked from design to deployment.
