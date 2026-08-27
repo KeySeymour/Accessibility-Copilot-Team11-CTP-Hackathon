@@ -7,6 +7,18 @@ export type Severity = "high" | "medium" | "low";
 /** Lifecycle a scan moves through; the analyzing page polls until it leaves. */
 export type ScanStatus = "queued" | "rendering" | "analyzing" | "complete" | "failed";
 
+/**
+ * Where an issue came from.
+ *
+ * "axe" — a deterministic rule violation. Authoritative, counts toward the score.
+ * "ai"  — a Gemini suggestion about something a rule checker can't judge
+ *         (vague link text, unhelpful alt text, incoherent heading order).
+ *         Labelled as a suggestion in the UI and deliberately excluded from the
+ *         score, so a model's opinion never moves a number users read as
+ *         objective.
+ */
+export type IssueSource = "axe" | "ai";
+
 export interface BoundingBox {
   /** Percentages of the screenshot's width/height, so the overlay scales. */
   x: number;
@@ -33,5 +45,24 @@ export interface Issue {
   /** Populated for contrast rules: current vs. recommended ratio. */
   contrast?: { current: number; recommended: number };
   box?: BoundingBox;
+  source?: IssueSource;
   fixApplied?: boolean;
+}
+
+/**
+ * A generated fix, as returned by POST /api/issues/[issueId]/fix.
+ *
+ * Lives here rather than in lib/scan/gemini.ts because the Fix Studio is a
+ * client component: gemini.ts is marked server-only, so the client must not
+ * import from it even for a type.
+ */
+export interface GeneratedFix {
+  explanation: string;
+  /** The corrected markup for this element. */
+  after: string;
+  /** CSS rule or attribute change, when the fix is expressible as one. */
+  patch: string | null;
+  /** What a human must check before applying — e.g. that alt text is accurate. */
+  caveat: string | null;
+  before?: string | null;
 }
