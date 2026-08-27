@@ -21,7 +21,7 @@
 
 import { NextResponse } from "next/server";
 import { getIssue, saveIssueFix, setFixApplied } from "@/lib/db";
-import { generateFix, isGeminiEnabled } from "@/lib/scan/gemini";
+import { classifyGeminiError, generateFix, GeminiError, isGeminiEnabled } from "@/lib/scan/gemini";
 
 export const dynamic = "force-dynamic";
 
@@ -47,14 +47,30 @@ export async function POST(req: Request, { params }: { params: { issueId: string
     );
   }
 
-  const fix = await generateFix({
-    ruleId: issue.ruleId,
-    title: issue.title,
-    html: issue.html,
-    suggestedFix: issue.suggestedFix,
-    contrast: issue.contrast,
-    context: issue.context,
-  });
+  let fix;
+  try {
+    fix = await generateFix({
+      ruleId: issue.ruleId,
+      title: issue.title,
+      html: issue.html,
+      suggestedFix: issue.suggestedFix,
+      contrast: issue.contrast,
+      context: issue.context,
+    });
+  } catch (err) {
+    // Report what actually went wrong. A 429 told as "please try again" sends
+    // the user in a loop against a daily quota that won't reset for hours.
+    const e = err instanceof GeminiError ? err : classifyGeminiError(err);
+    const status = e.kind === "quota" ? 429 : e.kind === "auth" ? 401 : e.kind === "model" ? 400 : 502;
+
+    return NextResponse.json(
+      { error: e.message, kind: e.kind, retryAfterSeconds: e.retryAfterSeconds ?? null },
+      {
+        status,
+        headers: e.retryAfterSeconds ? { "Retry-After": String(e.retryAfterSeconds) } : undefined,
+      },
+    );
+  }
 
   if (!fix) {
     return NextResponse.json({ error: "We couldn't generate a fix for this one. Please try again." }, { status: 502 });

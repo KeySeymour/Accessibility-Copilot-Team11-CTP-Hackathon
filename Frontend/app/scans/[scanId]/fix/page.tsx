@@ -84,7 +84,12 @@ export default async function FixStudioPage({ params }: { params: { scanId: stri
         </p>
       </div>
 
+      {/* keyed by scan id so navigating from one scan's Fix Studio to another
+          remounts it. Without the key React reuses the component (same route,
+          different param) and keeps the previous scan's selected issue and
+          generated fix — which reads as "Generate fix doesn't update". */}
       <FixStudio
+        key={scan.id}
         scanId={scan.id}
         issues={issues}
         score={scan.score ?? 0}
