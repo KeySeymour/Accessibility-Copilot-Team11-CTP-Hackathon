@@ -129,7 +129,7 @@ Initial research focuses on issues such as:
 | Layer              | Technology                               |
 | ------------------ | ---------------------------------------- |
 | Frontend           | Next.js, React, TypeScript, Tailwind CSS |
-| Backend            | Python, FastAPI                          |
+| Backend            | Node.js, Python, FastAPI                          |
 | AI                 | Google Gemini Multimodal                 |
 | Accessibility      | WCAG, axe-core, custom rules             |
 | Browser Automation | Playwright                               |
