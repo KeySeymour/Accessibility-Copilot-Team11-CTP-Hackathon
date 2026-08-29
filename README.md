@@ -1,332 +1,322 @@
 # Accessibility Copilot
 
-> **See it → Understand it → Fix it → Verify it → Keep it fixed.**
+> **See it. Understand it. Fix it. Verify it.**
 
-**Accessibility Copilot** is a visual accessibility design and remediation workspace for designers, developers, and non-technical users.
+Accessibility Copilot is an AI-assisted accessibility research platform that helps designers and developers identify, understand, remediate, and verify accessibility issues in digital interfaces.
 
-It helps teams find accessibility issues, understand their impact in plain language, preview practical fixes, and verify that accessibility actually improved.
+The project explores one central research question:
 
----
-
-## 1. Project Overview
-
-### 1.1 The Problem
-
-Accessibility issues are often discovered too late in the design and development process. Traditional accessibility reports can also be technical and difficult for designers or non-accessibility experts to understand and act on.
-
-Teams need a simple way to answer:
-
-- Where is the accessibility problem?
-- Why does it matter?
-- Who could it affect?
-- How can it be fixed?
-- Did the fix actually improve accessibility?
-
-### 1.2 The Solution
-
-Accessibility Copilot turns accessibility testing into a visual remediation workflow:
-
-**Upload / Scan → Detect → Understand → Fix → Verify → Re-score**
-
-The platform analyzes a screenshot or webpage, highlights potential accessibility issues directly on the interface, explains them in simple language, recommends improvements, and re-checks the updated product.
-
-### 1.3 Target Users
-
-- UX/UI designers
-- Frontend developers
-- Product and engineering teams
-- Companies and organizations managing websites or applications
-- Non-experts who need accessibility guidance without reading complex audit reports
+> **Can multimodal AI and deterministic accessibility testing work together to make accessibility remediation faster, clearer, and more reliable?**
 
 ---
 
-## 2. Accessibility Fix Studio
+## 1. Research Motivation
 
-The **Accessibility Fix Studio** is the main workspace of Accessibility Copilot.
+Accessibility problems are often detected late, reported in technical language, and separated from the design decisions that created them.
 
-Instead of presenting a long technical report, it shows accessibility issues directly on the product and helps the user move from detection to remediation.
-
-### 2.1 For Each Issue
-
-Users can see:
-
-- The affected area of the interface
-- A plain-language description of the problem
-- Why the issue matters
-- Who may be affected
-- Severity and confidence
-- Relevant WCAG guidance
-- A recommended fix
-- A preview of the suggested improvement
-- Before-and-after validation
-
-### 2.2 Example
+Accessibility Copilot reframes accessibility testing as an iterative process:
 
 ```text
-Low Contrast Detected
-
-Current contrast:     2.8:1  ❌
-Suggested contrast:   6.1:1  ✅
-
-Accessibility Score
-Before: 58 / 100
-After:  94 / 100
+Detect → Explain → Fix → Verify → Improve
 ```
 
----
+The system combines:
 
-## 3. MVP Features
+* **Multimodal AI** for visual understanding and explanation
+* **axe-core and WCAG rules** for deterministic validation
+* **Human review** for decisions requiring context and judgment
 
-The first version focuses on making the core remediation workflow reliable and easy to understand.
-
-### 3.1 Analysis
-
-- Screenshot upload and preview
-- Website URL analysis
-- AI-assisted visual accessibility analysis
-- Structured accessibility findings
-
-### 3.2 Issue Detection
-
-Initial checks focus on a small set of high-value issues, including:
-
-- Low color contrast
-- Text readability
-- Small interactive/touch targets
-- Unclear controls or labels
-- Other visual accessibility problems that can be reasonably detected from the available interface data
-
-### 3.3 Remediation
-
-- Visual issue highlighting using bounding boxes
-- Plain-language explanations
-- WCAG-based recommendations
-- AI-assisted candidate fixes
-- Fix preview
-- Before-and-after comparison
-
-### 3.4 Verification
-
-- Deterministic validation where possible
-- Versioned accessibility scoring
-- Re-analysis after a fix
-- Updated score based on the new analysis rather than an artificial score increase
+> **AI proposes. Rules verify. Humans decide.**
 
 ---
 
-## 4. How It Works
+## 2. System Architecture
 
 ```text
 Screenshot / Website
         ↓
 Accessibility Analysis
         ↓
-AI Visual Understanding
-        +
-Deterministic Accessibility Rules
-        +
-DOM / axe-core Validation (when available)
+┌─────────────────────────────┐
+│ Multimodal AI               │
+│ axe-core                    │
+│ WCAG / Deterministic Rules  │
+└─────────────────────────────┘
         ↓
-Normalized Accessibility Issues
+Normalized Findings
         ↓
 Accessibility Fix Studio
         ↓
-Suggested Fix
+Suggested Remediation
         ↓
 Re-validation
         ↓
 Before / After Result
 ```
 
-### 4.1 AI Responsibilities
+The **Accessibility Fix Studio** helps users understand:
 
-AI is used for tasks where visual understanding and reasoning are useful, such as:
+* What is wrong
+* Why it matters
+* Who may be affected
+* Which WCAG guidance applies
+* How the issue could be fixed
+* Whether the fix improved accessibility
 
-- Understanding interface context
-- Identifying potential visual problems
-- Explaining issues in simple language
-- Generating candidate remediation suggestions
+---
 
-### 4.2 Deterministic Responsibilities
+## 3. Research Evaluation
 
-Deterministic tools are preferred for measurable checks such as:
+The system can be evaluated across three dimensions.
 
-- Contrast calculations
-- DOM-based accessibility rules
-- axe-core validation
-- Candidate-fix verification
-- Accessibility score calculation
+### Detection Quality
 
-> **AI proposes. Accessibility rules verify whenever possible.**
+$$
+\text{Precision} = \frac{TP}{TP + FP}
+$$
+
+$$
+\text{Recall} = \frac{TP}{TP + FN}
+$$
+
+### Remediation Success
+
+$$
+\text{Fix Rate} =
+\frac{\text{Verified Fixes}}
+{\text{Attempted Fixes}}
+$$
+
+### Accessibility Improvement
+
+$$
+\Delta S = S_{\text{after}} - S_{\text{before}}
+$$
+
+where \(S\) represents the automated accessibility score.
+
+A positive \(\Delta S\) indicates measurable improvement after remediation.
+
+> **Note:** The score is an automated evaluation metric, not a guarantee of WCAG conformance.
+
+---
+
+## 4. Core Capabilities
+
+* Screenshot accessibility analysis
+* Website URL scanning
+* AI-assisted visual issue detection
+* axe-core validation
+* WCAG-based recommendations
+* Plain-language explanations
+* Visual issue highlighting
+* Suggested remediation
+* Before-and-after comparison
+* Re-validation after changes
+
+Initial research focuses on issues such as:
+
+* Color contrast
+* Text readability
+* Interactive target size
+* Labels and controls
+* Visually detectable accessibility barriers
 
 ---
 
 ## 5. Technology Stack
 
-### 5.1 Frontend
-
-- Next.js and React
-- TypeScript
-- Tailwind CSS
-
-### 5.2 Backend
-
-- Python and FastAPI for screenshot analysis
-- Next.js REST API routes for scans and remediation
-- SQLite for scans, issues, scores, and artifact metadata
-
-### 5.3 Accessibility
-
-- WCAG guidelines
-- axe-core
-- Custom deterministic accessibility rules
-
-### 5.4 AI
-
-- Google Gemini multimodal models
-- Structured JSON analysis output
-- AI-assisted explanations and remediation
-
-### 5.5 Infrastructure
-
-- Playwright for rendering and capturing public webpages
-- Local private storage for screenshots and generated previews
-- In-process background scans for a simple local-development workflow
+| Layer              | Technology                               |
+| ------------------ | ---------------------------------------- |
+| Frontend           | Next.js, React, TypeScript, Tailwind CSS |
+| Backend            | Python, FastAPI                          |
+| AI                 | Google Gemini Multimodal                 |
+| Accessibility      | WCAG, axe-core, custom rules             |
+| Browser Automation | Playwright                               |
+| Database           | SQLite                                   |
 
 ---
 
 ## 6. Run Locally
 
-Prerequisites: Node.js 20+, Python 3.11+, and a Gemini API key for AI screenshot analysis. URL scans still run axe-core when Gemini is disabled or unavailable.
+### Requirements
+
+* Node.js 20+
+* Python 3.11+
+* Gemini API key for AI analysis
+
+### Setup
 
 ```bash
 git clone https://github.com/KeySeymour/Accessibility-Copilot-Team11-CTP-Hackathon.git
 cd Accessibility-Copilot-Team11-CTP-Hackathon
 
+# Backend
 python3 -m venv .venv
 .venv/bin/pip install -r backend/requirements.txt
-
 cp backend/.env.example backend/.env
-cp Frontend/.env.example Frontend/.env.local
 
+# Frontend
+cp Frontend/.env.example Frontend/.env.local
 cd Frontend
 npm install
 npx playwright install chromium
+cd ..
 ```
 
-Add the same `GEMINI_API_KEY` to `backend/.env` and `Frontend/.env.local`. Never commit either file.
+Add the same `GEMINI_API_KEY` to:
 
-Start the backend from the repository root:
+```text
+backend/.env
+Frontend/.env.local
+```
+
+> **Security:** Never commit API keys or `.env` files.
+
+### Start the Application
+
+Run the backend and frontend in **two terminals**.
+
+**Terminal 1 — Backend**
 
 ```bash
 .venv/bin/uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Start the frontend in a second terminal:
+**Terminal 2 — Frontend**
 
 ```bash
 cd Frontend
 npm run dev
 ```
 
-Open `http://localhost:3000`, or on macOS run:
+Open:
 
-```bash
-open http://localhost:3000
+```text
+http://localhost:3000
 ```
 
-Run the project checks:
+---
+
+## 7. Test
+
+Before contributing, run:
 
 ```bash
 cd Frontend
+
 npm run lint
 npm run typecheck
 npm run test:remediation
 npm run build
 ```
 
----
-
-## 7. Product Direction
-
-Accessibility Copilot starts as a focused visual remediation workspace and can expand across the complete product lifecycle.
+Then verify the main workflow:
 
 ```text
-DESIGN
-Figma / Screenshots
-        ↓
-Accessibility Fix Studio
-        ↓
-DEVELOPMENT
-Developer Handoff + DOM Validation
-        ↓
-PULL REQUEST
-CI/CD Accessibility Checks
-        ↓
-DEPLOYMENT
-Regression Monitoring
-        ↓
-TEAM
-Collaboration + Accessibility Governance
+Upload / Scan
+     ↓
+Detect Issues
+     ↓
+Inspect Findings
+     ↓
+Preview Fix
+     ↓
+Re-analyze
+     ↓
+Compare Results
 ```
 
-### 7.1 Planned Expansion
+---
 
-- Figma integration
-- Design-system-aware fixes
-- Developer handoff
-- DOM accessibility validation
-- Pull-request accessibility checks
-- CI/CD integration
-- Accessibility regression monitoring
-- Team collaboration
-- Accessibility history and reporting
-- Organization-level accessibility dashboards and policies
+## 8. Contributing
+
+Create a development branch:
+
+```bash
+git checkout -b feature/your-feature
+```
+
+Make your changes, run the tests, then:
+
+```bash
+git add .
+git commit -m "feat: describe your change"
+git push origin feature/your-feature
+```
+
+Open a pull request explaining:
+
+1. What changed
+2. Why it changed
+3. How it was tested
+4. Accessibility impact
 
 ---
 
-## 8. Product Principles
+## 9. Research Principles
 
-### 8.1 Visual First
+### Accessibility Should Be Understandable
 
-Show users where the problem is instead of starting with a technical audit report.
+Accessibility reports should help people act, not simply list violations.
 
-### 8.2 Plain Language First
+### AI Should Assist, Not Certify
 
-Make accessibility understandable to designers, developers, and non-experts while keeping technical WCAG details available when needed.
+AI can identify patterns and propose solutions, but deterministic testing and human judgment remain essential.
 
-### 8.3 Fix, Not Just Report
+### Improvements Should Be Measurable
 
-The goal is not only to identify problems but to help users move toward a practical solution.
+A remediation is meaningful only when the resulting interface is evaluated again.
 
-### 8.4 Verify Improvement
+### Accessibility Belongs Throughout the Lifecycle
 
-A suggested fix should be re-tested before the product claims that accessibility improved.
-
-### 8.5 Continuous Accessibility
-
-Accessibility should be considered during design, development, deployment, and ongoing product maintenance—not only during a final audit.
+```text
+Design → Detect → Understand → Fix → Verify → Ship → Monitor
+```
 
 ---
 
-## 9. Important Accessibility Note
+## 10. Limitations
 
-Accessibility Copilot is designed to **assist accessibility testing and remediation**. It should not be treated as a complete accessibility certification tool.
+Accessibility Copilot is a **research and assistive remediation system**.
 
-Automated analysis cannot guarantee full WCAG conformance. Some accessibility requirements require manual review, keyboard testing, assistive technology testing, semantic inspection, and human judgment.
+It does **not** guarantee WCAG compliance or replace professional accessibility evaluation.
 
-The product should therefore describe its score as an **automated accessibility score** rather than a guarantee of compliance.
+Complete accessibility testing may also require:
+
+* Keyboard navigation testing
+* Screen-reader testing
+* Semantic HTML inspection
+* Assistive technology testing
+* Manual expert review
+* Evaluation with people with disabilities
 
 ---
 
-## 10. Vision
+## 11. Future Research
 
-Accessibility Copilot aims to become the accessibility layer connecting **design and engineering**.
+Future work may explore:
 
-The long-term goal is a continuous workflow where accessibility issues are:
+* Figma integration
+* Design-system-aware remediation
+* DOM-level fix generation
+* CI/CD accessibility checks
+* Pull-request validation
+* Accessibility regression detection
+* Longitudinal accessibility scoring
+* Team accessibility analytics
+* Human-versus-AI evaluation studies
 
-**caught during design → understood and fixed → verified during development → checked before release → monitored after deployment.**
+---
+
+## Vision
+
+Accessibility should not begin with an audit after a product is finished.
+
+It should be part of how products are **designed, built, tested, and improved**.
 
 ### North Star
 
-**Design → Fix → Build → Verify → Ship → Monitor**
+> **Make accessibility problems visible, understandable, actionable, and verifiable before they become barriers for users.**
+
+**Design → Detect → Understand → Fix → Verify → Ship → Monitor**
